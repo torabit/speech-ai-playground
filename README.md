@@ -29,7 +29,10 @@ npm run dev:server   # :8787
 npm run dev:web      # :5173
 ```
 
-`http://localhost:5173` を Chrome で開く。マイクは安全なコンテキストでしか使えない。リモートのマシンで動かす場合は `ssh -L 5173:localhost:5173 <host>` で転送する。
+`http://localhost:5173` を Chrome で開く。マイクは安全なコンテキスト（HTTPS か localhost）でしか使えない。リモートのマシンで動かす場合は次のどちらかで開く。
+
+- Tailscale: `tailscale serve --bg 5173` を実行し、`https://<host>.<tailnet>.ts.net` を開く。止めるときは `tailscale serve --https=443 off`
+- SSH: `ssh -L 5173:localhost:5173 <host>` で転送し、`http://localhost:5173` を開く
 
 API キーは `server/.env` に書く（`.env.example` を参照、gitignore 済み）。
 
