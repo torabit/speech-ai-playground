@@ -17,9 +17,19 @@ export async function startMic(
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: { sampleRate: 16000 },
   });
+  const track = stream.getAudioTracks()[0];
+
+  console.log(
+    "supported constraints:",
+    navigator.mediaDevices.getSupportedConstraints(),
+  );
+  const enumerateDevices = async () =>
+    await navigator.mediaDevices.enumerateDevices();
+  console.log("enumerateDevices:", enumerateDevices());
+  console.log("settings:", track.getSettings());
+  console.log("trackLabel:", track.label);
 
   const stop = async () => {
-    console.log("settings:", stream.getAudioTracks()[0].getSettings());
     const tracks = stream.getTracks();
     tracks.forEach((t) => t.stop());
   };
