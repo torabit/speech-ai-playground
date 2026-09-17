@@ -1,0 +1,43 @@
+body {
+  font-family: system-ui, sans-serif;
+  margin: 0;
+  padding: 24px;
+  color: #1a1a1a;
+  background: #fafafa;
+}
+main {
+  max-width: 640px;
+  margin: 0 auto;
+}
+.row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.badge {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  background: #e5e5e5;
+}
+.badge.connecting { background: #fde68a; }
+.badge.ready { background: #bbf7d0; }
+.badge.failed { background: #fecaca; }
+.error { color: #b91c1c; }
+.meter {
+  height: 10px;
+  margin-top: 16px;
+  background: #e5e5e5;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.meter-fill {
+  height: 100%;
+  background: #22c55e;
+}
+dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+}
+dd { margin: 0; font-variant-numeric: tabular-nums; }

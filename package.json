@@ -1,0 +1,17 @@
+{
+  "name": "speech-ai-playground",
+  "private": true,
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
+    "verify:phase0": "node scripts/verify-phase0.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.63.0"
+  }
+}
