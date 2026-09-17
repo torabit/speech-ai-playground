@@ -15,7 +15,7 @@ STT、LLM、TTS を直列につないだ pipeline 構成と、End-to-End の spe
 | 層 | 選択 |
 | --- | --- |
 | フロントエンド | Vite + React + TypeScript |
-| サーバ | Node.js 24（`ws`） |
+| サーバ | Node.js 24 + Hono（`@hono/node-ws`） |
 | STT | Deepgram Nova-3 |
 | 翻訳 | Gemini Flash-Lite |
 | TTS | Deepgram Aura-2 |
