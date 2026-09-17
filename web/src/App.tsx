@@ -17,10 +17,20 @@
 //
 // index.css に .badge / .badge.<状態名> / .error / .meter / .meter-fill を用意してある
 
+import { startMic } from "./mic";
+
 export function App() {
+  const getFrame = (pcm: ArrayBuffer, peek: number) => {
+    console.log(pcm, peek);
+  };
+
+  const onClick = () => {
+    startMic(getFrame);
+  };
   return (
     <main>
       <h1>Speech AI Playground</h1>
+      <button onClick={onClick}>call mice</button>
     </main>
   );
 }

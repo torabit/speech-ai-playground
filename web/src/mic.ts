@@ -11,6 +11,18 @@
 
 export type Mic = { stop: () => Promise<void> };
 
-export async function startMic(onFrame: (pcm: ArrayBuffer, peak: number) => void): Promise<Mic> {
-  throw new Error("not implemented");
+export async function startMic(
+  onFrame: (pcm: ArrayBuffer, peak: number) => void,
+): Promise<Mic> {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: { sampleRate: 16000 },
+  });
+
+  const stop = async () => {
+    console.log("settings:", stream.getAudioTracks()[0].getSettings());
+    const tracks = stream.getTracks();
+    tracks.forEach((t) => t.stop());
+  };
+
+  return { stop };
 }
