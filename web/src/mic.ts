@@ -15,23 +15,25 @@ export async function startMic(
   onFrame: (pcm: ArrayBuffer, peak: number) => void,
 ): Promise<Mic> {
   const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { sampleRate: 16000 },
+    audio: { sampleRate: 16_000 },
   });
-  const track = stream.getAudioTracks()[0];
+  const ctx = new AudioContext({ sampleRate: 16_000 });
 
-  console.log(
-    "supported constraints:",
-    navigator.mediaDevices.getSupportedConstraints(),
-  );
-  const enumerateDevices = async () =>
-    await navigator.mediaDevices.enumerateDevices();
-  console.log("enumerateDevices:", enumerateDevices());
-  console.log("settings:", track.getSettings());
-  console.log("trackLabel:", track.label);
+  await ctx.audioWorklet.addModule("/pcm-worklet.js");
+
+  const source = ctx.createMediaStreamSource(stream);
+  const node = new AudioWorkletNode(ctx, "pcm-worklet");
+
+  source.connect(node);
+
+  console.log("sample rate: ", ctx.sampleRate);
+  console.log("state: ", ctx.state);
 
   const stop = async () => {
     const tracks = stream.getTracks();
     tracks.forEach((t) => t.stop());
+    source.disconnect();
+    await ctx.close();
   };
 
   return { stop };

@@ -8,7 +8,17 @@
 // processor 名は mic.ts から参照する名前と揃えること
 
 class PcmWorklet extends AudioWorkletProcessor {
+  // クラスフィールド。呼び出しをまたいで値が残るので constructor は要らない
+  logged = 0;
+
   process(inputs) {
+    const channel = inputs[0]?.[0];
+    if (!channel) return true; // 入力がまだ来ていない
+
+    if (this.logged < 5) {
+      console.log("process:", channel.length, "samples");
+      this.logged++;
+    }
     return true;
   }
 }
