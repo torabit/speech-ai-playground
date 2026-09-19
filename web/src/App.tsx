@@ -1,24 +1,11 @@
-import { useRef } from "react";
 import { Transcript } from "./Transcript";
+import { useRecordingPlayer } from "./useRecordingPlayer";
 import { useSpeechSession } from "./useSpeechSession";
 
 export function App() {
-  const { state, start, stop, setPlayhead } = useSpeechSession();
-  const player = useRef<HTMLAudioElement>(null);
+  const { state, start, stop } = useSpeechSession();
+  const player = useRecordingPlayer();
   const { connection, meter } = state;
-
-  const seek = (startMs: number) => {
-    const audio = player.current;
-    if (!audio) return;
-    const jump = () => {
-      // 単語の開始ちょうどだと頭が欠けて聞こえるので、少し手前から再生する
-      audio.currentTime = Math.max(0, startMs - 300) / 1000;
-      void audio.play();
-    };
-    // メタデータが未読込だと currentTime の代入が無視される
-    if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) jump();
-    else audio.addEventListener("loadedmetadata", jump, { once: true });
-  };
 
   const active = connection.status === "connecting" || connection.status === "ready";
   const recordingSrc = connection.status === "idle" ? connection.recordingSrc : null;
@@ -59,8 +46,8 @@ export function App() {
         <Transcript
           lines={state.lines}
           partial={state.partial}
-          onSeek={recordingSrc ? seek : undefined}
-          playheadMs={state.playheadMs}
+          onSeek={recordingSrc ? player.seek : undefined}
+          playheadMs={player.playheadMs}
         />
       </section>
 
@@ -68,13 +55,13 @@ export function App() {
         <section>
           <p>直近の録音。行をクリックするとその発話の頭から再生する</p>
           <audio
-            ref={player}
+            ref={player.ref}
             controls
             preload="metadata"
             src={recordingSrc}
-            onTimeUpdate={(e) => setPlayhead(e.currentTarget.currentTime * 1000)}
-            onPause={() => setPlayhead(null)}
-            onEnded={() => setPlayhead(null)}
+            onTimeUpdate={player.onTimeUpdate}
+            onPause={player.onStop}
+            onEnded={player.onStop}
           />
         </section>
       )}

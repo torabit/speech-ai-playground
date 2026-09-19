@@ -18,8 +18,6 @@ export type State = {
   // STT だけが落ちた状態。音声の送信は続くので connection は変えない
   sttError: string | null;
   meter: { frames: number; peak: number };
-  // 録音の再生位置。再生していないときは null
-  playheadMs: number | null;
 };
 
 type Action =
@@ -28,8 +26,7 @@ type Action =
   | { type: "failed"; reason: string }
   | { type: "stopped"; recordingSrc: string | null }
   | { type: "server"; message: ServerMessage }
-  | { type: "meter"; frames: number; peak: number }
-  | { type: "playhead"; ms: number | null };
+  | { type: "meter"; frames: number; peak: number };
 
 const INITIAL: State = {
   connection: { status: "idle", recordingSrc: null },
@@ -38,7 +35,6 @@ const INITIAL: State = {
   speaking: false,
   sttError: null,
   meter: { frames: 0, peak: 0 },
-  playheadMs: null,
 };
 
 // ありえない遷移は現在の状態を返して無視する。
@@ -60,8 +56,6 @@ function reducer(state: State, action: Action): State {
       return applyServerMessage(state, action.message);
     case "meter":
       return { ...state, meter: { frames: action.frames, peak: action.peak } };
-    case "playhead":
-      return { ...state, playheadMs: action.ms };
   }
 }
 
@@ -127,7 +121,5 @@ export function useSpeechSession() {
     dispatch({ type: "stopped", recordingSrc });
   };
 
-  const setPlayhead = (ms: number | null) => dispatch({ type: "playhead", ms });
-
-  return { state, start, stop, setPlayhead };
+  return { state, start, stop };
 }
