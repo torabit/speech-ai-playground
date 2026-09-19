@@ -1,116 +1,17 @@
-import { useEffect, useReducer, useRef, useState } from "react";
-import { startSession, type Session } from "./session";
-import { Transcript, type Line } from "./Transcript";
-
-// 接続の状態。録音があるかは idle のときだけ意味を持つので、その状態の中に持たせる
-type State =
-  | { status: "idle"; hasRecording: boolean }
-  | { status: "connecting" }
-  | { status: "ready" }
-  | { status: "failed"; reason: string };
-
-type Event =
-  | { type: "start" }
-  | { type: "ready" }
-  | { type: "failed"; reason: string }
-  | { type: "stopped" };
-
-// ありえない遷移は現在の状態を返して無視する
-function reducer(state: State, event: Event): State {
-  switch (event.type) {
-    case "start":
-      return state.status === "idle" || state.status === "failed"
-        ? { status: "connecting" }
-        : state;
-    case "ready":
-      return state.status === "connecting" ? { status: "ready" } : state;
-    case "failed":
-      return state.status === "connecting" || state.status === "ready"
-        ? { status: "failed", reason: event.reason }
-        : state;
-    case "stopped":
-      // ready まで進んでいれば録音が残っている
-      return { status: "idle", hasRecording: state.status === "ready" };
-  }
-}
-
-type Meter = { frames: number; peak: number };
-const EMPTY_METER: Meter = { frames: 0, peak: 0 };
+import { useRef } from "react";
+import { Transcript } from "./Transcript";
+import { useSpeechSession } from "./useSpeechSession";
 
 export function App() {
-  const [state, dispatch] = useReducer(reducer, {
-    status: "idle",
-    hasRecording: false,
-  });
-  const [meter, setMeter] = useState(EMPTY_METER);
-  // 認識結果は接続の状態遷移とは別の軸なので、別に持つ
-  const [lines, setLines] = useState<Line[]>([]);
-  const [partial, setPartial] = useState("");
-  const [speaking, setSpeaking] = useState(false);
-  // STT だけが落ちた状態。音声の送信は続くので接続の状態は変えない
-  const [sttError, setSttError] = useState<string | null>(null);
-  // 録音の再生位置。再生していないときは null
-  const [playheadMs, setPlayheadMs] = useState<number | null>(null);
-  // 録音の URL。再描画のたびに変わると音声要素が読み込み直されるので、停止時に 1 度だけ決める
-  const [recordingSrc, setRecordingSrc] = useState<string | null>(null);
-  const session = useRef<Session | null>(null);
+  const { state, start, stop, setPlayhead } = useSpeechSession();
   const player = useRef<HTMLAudioElement>(null);
-  // 20ms ごとに setState すると画面全体が毎秒 50 回再描画される。
-  // 溜めておいて 100ms ごとに反映する
-  const pending = useRef({ frames: 0, peak: 0, lastFlush: 0 });
-
-  // タブを閉じるときにマイクを掴んだままにしない
-  useEffect(() => () => void session.current?.stop(), []);
-
-  const start = () => {
-    dispatch({ type: "start" });
-    setMeter(EMPTY_METER);
-    pending.current = { frames: 0, peak: 0, lastFlush: 0 };
-    setLines([]);
-    setPartial("");
-    setSttError(null);
-    setPlayheadMs(null);
-    setRecordingSrc(null);
-    session.current = startSession({
-      onReady: () => dispatch({ type: "ready" }),
-      onFailed: (reason) => {
-        session.current = null;
-        dispatch({ type: "failed", reason });
-      },
-      onFrame: (peak) => {
-        const p = pending.current;
-        p.frames++;
-        p.peak = Math.max(p.peak, peak);
-        const now = performance.now();
-        if (now - p.lastFlush < 100) return;
-        p.lastFlush = now;
-        setMeter({ frames: p.frames, peak: p.peak });
-        p.peak = 0;
-      },
-      onMessage: (m) => {
-        switch (m.type) {
-          case "partial":
-            return setPartial(m.text);
-          case "final":
-            // 確定したら部分結果を消して行に積む
-            setPartial("");
-            return setLines((prev) => [...prev, { text: m.text, lagMs: m.lagMs, startMs: m.startMs, endMs: m.endMs }]);
-          case "speech_started":
-            return setSpeaking(true);
-          case "utterance_end":
-            return setSpeaking(false);
-          case "stt_error":
-            return setSttError(m.reason);
-        }
-      },
-    });
-  };
+  const { connection, meter } = state;
 
   const seek = (startMs: number) => {
     const audio = player.current;
     if (!audio) return;
     const jump = () => {
-      // speech_started は実際の発話開始よりわずかに後ろなので、少し手前から再生する
+      // 単語の開始ちょうどだと頭が欠けて聞こえるので、少し手前から再生する
       audio.currentTime = Math.max(0, startMs - 300) / 1000;
       void audio.play();
     };
@@ -119,44 +20,31 @@ export function App() {
     else audio.addEventListener("loadedmetadata", jump, { once: true });
   };
 
-  const stop = () => {
-    void session.current?.stop();
-    session.current = null;
-    setRecordingSrc(`/api/recordings/latest?t=${Date.now()}`);
-    dispatch({ type: "stopped" });
-  };
-
-  const active = state.status === "connecting" || state.status === "ready";
+  const active = connection.status === "connecting" || connection.status === "ready";
+  const recordingSrc = connection.status === "idle" ? connection.recordingSrc : null;
 
   return (
     <main>
       <h1>Speech AI Playground</h1>
 
       <section className="row">
-        <span className={`badge ${state.status}`} data-testid="status">
-          {state.status}
+        <span className={`badge ${connection.status}`} data-testid="status">
+          {connection.status}
         </span>
-        {active ? (
-          <button onClick={stop}>Stop</button>
-        ) : (
-          <button onClick={start}>Start</button>
-        )}
+        {active ? <button onClick={stop}>Stop</button> : <button onClick={start}>Start</button>}
         {/* Deepgram が発話中と判断している区間 */}
-        <span className={`vad ${speaking ? "on" : ""}`} title="speech_started / utterance_end">
-          {speaking ? "● speaking" : "○ silent"}
+        <span className={`vad ${state.speaking ? "on" : ""}`} title="speech_started / utterance_end">
+          {state.speaking ? "● speaking" : "○ silent"}
         </span>
       </section>
 
-      {state.status === "failed" && <p className="error">{state.reason}</p>}
+      {connection.status === "failed" && <p className="error">{connection.reason}</p>}
       {/* STT だけの失敗。録音は続くので接続の状態とは別に出す */}
-      {sttError && <p className="warn">STT 停止: {sttError}</p>}
+      {state.sttError && <p className="warn">STT 停止: {state.sttError}</p>}
 
       <section>
         <div className="meter">
-          <div
-            className="meter-fill"
-            style={{ width: `${Math.round(meter.peak * 100)}%` }}
-          />
+          <div className="meter-fill" style={{ width: `${Math.round(meter.peak * 100)}%` }} />
         </div>
         <dl>
           <dt>frames sent</dt>
@@ -169,14 +57,14 @@ export function App() {
       <section>
         <h2>認識結果</h2>
         <Transcript
-          lines={lines}
-          partial={partial}
-          onSeek={state.status === "idle" && state.hasRecording ? seek : undefined}
-          playheadMs={playheadMs}
+          lines={state.lines}
+          partial={state.partial}
+          onSeek={recordingSrc ? seek : undefined}
+          playheadMs={state.playheadMs}
         />
       </section>
 
-      {state.status === "idle" && state.hasRecording && recordingSrc && (
+      {recordingSrc && (
         <section>
           <p>直近の録音。行をクリックするとその発話の頭から再生する</p>
           <audio
@@ -184,9 +72,9 @@ export function App() {
             controls
             preload="metadata"
             src={recordingSrc}
-            onTimeUpdate={(e) => setPlayheadMs(e.currentTarget.currentTime * 1000)}
-            onPause={() => setPlayheadMs(null)}
-            onEnded={() => setPlayheadMs(null)}
+            onTimeUpdate={(e) => setPlayhead(e.currentTarget.currentTime * 1000)}
+            onPause={() => setPlayhead(null)}
+            onEnded={() => setPlayhead(null)}
           />
         </section>
       )}
