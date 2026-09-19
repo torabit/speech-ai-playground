@@ -17,7 +17,8 @@
 //
 // index.css に .badge / .badge.<状態名> / .error / .meter / .meter-fill を用意してある
 
-import { startMic } from "./mic";
+import { useRef } from "react";
+import { startSession, type Session } from "./session";
 
 // Step 3 の観察用。状態遷移を作るときに消す。
 // コンポーネントの外に置くのは、再描画のたびに初期化されないようにするため
@@ -26,7 +27,8 @@ let peakInWindow = 0;
 let lastLogAt = performance.now();
 
 export function App() {
-  const getFrame = (_pcm: ArrayBuffer, peak: number) => {
+  const session = useRef<Session | undefined>(undefined);
+  const getFrame = (peak: number) => {
     count++;
     peakInWindow = Math.max(peakInWindow, peak);
 
@@ -39,13 +41,19 @@ export function App() {
     }
   };
 
-  const onClick = () => {
-    startMic(getFrame);
+  const startRecording = () => {
+    session.current = startSession({
+      onReady: () => console.log("ready"),
+      onFailed: (e) => console.log(e, "failed"),
+      onFrame: getFrame,
+    });
   };
+
   return (
     <main>
       <h1>Speech AI Playground</h1>
-      <button onClick={onClick}>call mice</button>
+      <button onClick={startRecording}>start recording</button>
+      <button onClick={() => session.current?.stop()}>stop recording</button>
     </main>
   );
 }

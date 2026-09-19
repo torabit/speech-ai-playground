@@ -12,14 +12,35 @@
 //
 // 下のシグネチャは一案。変えてよい
 
+import { startMic, type Mic } from "./mic";
+
 export type SessionHandlers = {
   onReady: () => void;
   onFailed: (reason: string) => void;
   onFrame: (peak: number) => void;
 };
 
-export type Session = { stop: () => void };
+export type Session = { stop: () => Promise<void> };
 
 export function startSession(handlers: SessionHandlers): Session {
-  throw new Error("not implemented");
+  const ws = new WebSocket("/audio");
+  let mic: Mic | undefined;
+
+  const micCallback = (pcm: ArrayBuffer, peak: number) => {
+    if (ws.readyState === WebSocket.OPEN) ws.send(pcm);
+    handlers.onFrame(peak);
+  };
+
+  ws.onopen = async () => {
+    mic = await startMic(micCallback);
+    handlers.onReady();
+  };
+  ws.binaryType = "arraybuffer";
+
+  const stop = async () => {
+    if (mic) await mic.stop();
+    ws.close(1000);
+  };
+
+  return { stop };
 }
