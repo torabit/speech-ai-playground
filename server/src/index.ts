@@ -30,7 +30,29 @@ const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 app.get("/api/recordings/latest", (c) => {
   const latest = readdirSync(RECORDINGS_DIR).filter((f) => f.endsWith(".wav")).sort().at(-1);
   if (!latest) return c.notFound();
-  return c.body(readFileSync(join(RECORDINGS_DIR, latest)), 200, { "content-type": "audio/wav" });
+  const wav = readFileSync(join(RECORDINGS_DIR, latest));
+
+  // Range に応えないと、ブラウザは途中位置へシークできず先頭から再生する
+  const range = /^bytes=(\d*)-(\d*)$/.exec(c.req.header("range") ?? "");
+  if (!range) {
+    return c.body(wav, 200, {
+      "content-type": "audio/wav",
+      "accept-ranges": "bytes",
+      "content-length": String(wav.length),
+    });
+  }
+
+  const start = range[1] ? Number(range[1]) : 0;
+  const end = range[2] ? Math.min(Number(range[2]), wav.length - 1) : wav.length - 1;
+  if (start >= wav.length || start > end) {
+    return c.body(null, 416, { "content-range": `bytes */${wav.length}` });
+  }
+  return c.body(wav.subarray(start, end + 1), 206, {
+    "content-type": "audio/wav",
+    "accept-ranges": "bytes",
+    "content-range": `bytes ${start}-${end}/${wav.length}`,
+    "content-length": String(end - start + 1),
+  });
 });
 
 app.get(

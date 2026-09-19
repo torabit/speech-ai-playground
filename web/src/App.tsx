@@ -103,8 +103,14 @@ export function App() {
   const seek = (startMs: number) => {
     const audio = player.current;
     if (!audio) return;
-    audio.currentTime = startMs / 1000;
-    void audio.play();
+    const jump = () => {
+      // speech_started は実際の発話開始よりわずかに後ろなので、少し手前から再生する
+      audio.currentTime = Math.max(0, startMs - 300) / 1000;
+      void audio.play();
+    };
+    // メタデータが未読込だと currentTime の代入が無視される
+    if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) jump();
+    else audio.addEventListener("loadedmetadata", jump, { once: true });
   };
 
   const stop = () => {
