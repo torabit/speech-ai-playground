@@ -65,8 +65,6 @@ app.get(
     let lastArrival: number | undefined;
     let stt: SttConnection | undefined;
     let forwardedBytes = 0;
-    // 直近の発話が始まった音声位置。確定行のシーク先に使う
-    let utteranceStartMs = 0;
 
     // ブラウザへは JSON のテキストで返す。音声はバイナリ、結果はテキストで方向が分かれる
     const toBrowser = (ws: { send: (data: string) => void }, message: Record<string, unknown>) => {
@@ -85,11 +83,9 @@ app.get(
         }
         stt = connectStt(DEEPGRAM_API_KEY, {
           onPartial: (text) => toBrowser(ws, { type: "partial", text }),
-          onFinal: (text, speechFinal) => toBrowser(ws, { type: "final", text, speechFinal, startMs: utteranceStartMs }),
-          onSpeechStarted: () => {
-            utteranceStartMs = Math.round(forwardedBytes / 2 / (SAMPLE_RATE / 1000));
-            toBrowser(ws, { type: "speech_started" });
-          },
+          onFinal: (text, speechFinal, startMs, endMs) =>
+            toBrowser(ws, { type: "final", text, speechFinal, startMs, endMs }),
+          onSpeechStarted: () => toBrowser(ws, { type: "speech_started" }),
           onUtteranceEnd: () => toBrowser(ws, { type: "utterance_end" }),
           onError: (reason) => {
             console.error(`[stt] ${reason}`);

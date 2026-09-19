@@ -84,6 +84,11 @@ h2 {
 }
 .line.seekable { cursor: pointer; }
 .line.seekable:hover { background: #f1f5f9; }
+/* 再生中の行 */
+.line.active {
+  background: #fef3c7;
+  box-shadow: inset 2px 0 0 #f59e0b;
+}
 /* 確定前。まだ書き換わることを色で示す */
 .line.partial { color: #9ca3af; }
 audio { width: 100%; margin-top: 8px; }

@@ -17,7 +17,7 @@ import { startMic, type Mic } from "./mic";
 // サーバから届く JSON。音声はバイナリで送り、結果はテキストで返る
 export type ServerMessage = { t: number; audioMs: number; lagMs: number } & (
   | { type: "partial"; text: string }
-  | { type: "final"; text: string; speechFinal: boolean; startMs: number }
+  | { type: "final"; text: string; speechFinal: boolean; startMs: number; endMs: number }
   | { type: "speech_started" }
   | { type: "utterance_end" }
   | { type: "stt_error"; reason: string }

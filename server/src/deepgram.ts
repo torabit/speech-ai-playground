@@ -9,7 +9,8 @@
 
 export type SttEvents = {
   onPartial: (text: string) => void;
-  onFinal: (text: string, speechFinal: boolean) => void;
+  // start と end はストリーム開始からの位置（ms）。Deepgram が結果ごとに返す
+  onFinal: (text: string, speechFinal: boolean, startMs: number, endMs: number) => void;
   onSpeechStarted: () => void;
   onUtteranceEnd: () => void;
   onError: (reason: string) => void;
@@ -57,9 +58,17 @@ export function connectStt(apiKey: string, events: SttEvents): SttConnection {
 
     switch (msg.type) {
       case "Results": {
-        const text = msg.channel?.alternatives?.[0]?.transcript ?? "";
+        const alt = msg.channel?.alternatives?.[0];
+        const text = alt?.transcript ?? "";
         if (!text) return; // 無音区間では空文字が届く
-        if (msg.is_final) events.onFinal(text, msg.speech_final === true);
+        if (msg.is_final) {
+          // 単語の時刻を使う。msg.start は認識区間の先頭で、前の無音も含む
+          const words = alt?.words ?? [];
+          const segmentStart = msg.start ?? 0;
+          const first = words[0]?.start ?? segmentStart;
+          const last = words.at(-1)?.end ?? segmentStart + (msg.duration ?? 0);
+          events.onFinal(text, msg.speech_final === true, Math.round(first * 1000), Math.round(last * 1000));
+        }
         else events.onPartial(text);
         return;
       }
@@ -100,9 +109,11 @@ export function connectStt(apiKey: string, events: SttEvents): SttConnection {
 
 type DeepgramMessage = {
   type?: string;
+  start?: number;
+  duration?: number;
   is_final?: boolean;
   speech_final?: boolean;
-  channel?: { alternatives?: { transcript?: string }[] };
+  channel?: { alternatives?: { transcript?: string; words?: { start?: number; end?: number }[] }[] };
   error?: unknown;
   err_msg?: unknown;
 };

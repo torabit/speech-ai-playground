@@ -49,6 +49,10 @@ export function App() {
   const [speaking, setSpeaking] = useState(false);
   // STT だけが落ちた状態。音声の送信は続くので接続の状態は変えない
   const [sttError, setSttError] = useState<string | null>(null);
+  // 録音の再生位置。再生していないときは null
+  const [playheadMs, setPlayheadMs] = useState<number | null>(null);
+  // 録音の URL。再描画のたびに変わると音声要素が読み込み直されるので、停止時に 1 度だけ決める
+  const [recordingSrc, setRecordingSrc] = useState<string | null>(null);
   const session = useRef<Session | null>(null);
   const player = useRef<HTMLAudioElement>(null);
   // 20ms ごとに setState すると画面全体が毎秒 50 回再描画される。
@@ -65,6 +69,8 @@ export function App() {
     setLines([]);
     setPartial("");
     setSttError(null);
+    setPlayheadMs(null);
+    setRecordingSrc(null);
     session.current = startSession({
       onReady: () => dispatch({ type: "ready" }),
       onFailed: (reason) => {
@@ -88,7 +94,7 @@ export function App() {
           case "final":
             // 確定したら部分結果を消して行に積む
             setPartial("");
-            return setLines((prev) => [...prev, { text: m.text, lagMs: m.lagMs, startMs: m.startMs }]);
+            return setLines((prev) => [...prev, { text: m.text, lagMs: m.lagMs, startMs: m.startMs, endMs: m.endMs }]);
           case "speech_started":
             return setSpeaking(true);
           case "utterance_end":
@@ -116,6 +122,7 @@ export function App() {
   const stop = () => {
     void session.current?.stop();
     session.current = null;
+    setRecordingSrc(`/api/recordings/latest?t=${Date.now()}`);
     dispatch({ type: "stopped" });
   };
 
@@ -165,17 +172,21 @@ export function App() {
           lines={lines}
           partial={partial}
           onSeek={state.status === "idle" && state.hasRecording ? seek : undefined}
+          playheadMs={playheadMs}
         />
       </section>
 
-      {state.status === "idle" && state.hasRecording && (
+      {state.status === "idle" && state.hasRecording && recordingSrc && (
         <section>
           <p>直近の録音。行をクリックするとその発話の頭から再生する</p>
           <audio
             ref={player}
             controls
             preload="metadata"
-            src={`/api/recordings/latest?t=${Date.now()}`}
+            src={recordingSrc}
+            onTimeUpdate={(e) => setPlayheadMs(e.currentTarget.currentTime * 1000)}
+            onPause={() => setPlayheadMs(null)}
+            onEnded={() => setPlayheadMs(null)}
           />
         </section>
       )}
