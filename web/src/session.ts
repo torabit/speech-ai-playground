@@ -14,10 +14,20 @@
 
 import { startMic, type Mic } from "./mic";
 
+// サーバから届く JSON。音声はバイナリで送り、結果はテキストで返る
+export type ServerMessage = { t: number; audioMs: number; lagMs: number } & (
+  | { type: "partial"; text: string }
+  | { type: "final"; text: string; speechFinal: boolean; startMs: number }
+  | { type: "speech_started" }
+  | { type: "utterance_end" }
+  | { type: "stt_error"; reason: string }
+);
+
 export type SessionHandlers = {
   onReady: () => void;
   onFailed: (reason: string) => void;
   onFrame: (peak: number) => void;
+  onMessage: (message: ServerMessage) => void;
 };
 
 export type Session = { stop: () => Promise<void> };
@@ -67,6 +77,14 @@ export function startSession(handlers: SessionHandlers): Session {
     }
   };
   ws.binaryType = "arraybuffer";
+  ws.onmessage = (e) => {
+    if (typeof e.data !== "string") return;
+    try {
+      handlers.onMessage(JSON.parse(e.data) as ServerMessage);
+    } catch {
+      // 壊れた JSON は無視する。セッション自体は続ける
+    }
+  };
   ws.onclose = (e) => fail(`websocket closed (code ${e.code})`);
 
   return { stop };
