@@ -12,7 +12,10 @@ export function useRecordingPlayer() {
     const jump = () => {
       // 単語の開始ちょうどだと頭が欠けて聞こえるので、少し手前から再生する
       audio.currentTime = Math.max(0, startMs - 300) / 1000;
-      void audio.play();
+      // 再生中に別の位置へシークすると AbortError で reject する。想定内なので無視する
+      audio.play().catch((e: DOMException) => {
+        if (e.name !== "AbortError") console.error("playback failed", e);
+      });
     };
     // メタデータが未読込だと currentTime の代入が無視される
     if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) jump();

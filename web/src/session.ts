@@ -57,7 +57,7 @@ export function startSession(handlers: SessionHandlers): Session {
 
   const fail = (reason: string) => {
     if (stopped) return;
-    stop().catch(console.error);
+    void stop(); // stop は reject しない
     handlers.onFailed(reason);
   };
 

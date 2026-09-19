@@ -85,7 +85,7 @@ export function useSpeechSession() {
   // 20ms ごとに dispatch すると画面全体が毎秒 50 回再描画される。溜めて 100ms ごとに反映する
   const pending = useRef({ frames: 0, peak: 0, lastFlush: 0 });
 
-  // タブを閉じるときにマイクを掴んだままにしない
+  // タブを閉じるときにマイクを掴んだままにしない。stop は reject しない
   useEffect(() => () => void session.current?.stop(), []);
 
   const start = () => {

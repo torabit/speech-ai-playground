@@ -30,12 +30,17 @@ export async function startMic(
 
   source.connect(node);
 
+  // 後始末は失敗しても呼び出し側にできることがないので、ここで握って reject しない。
+  // ctx.close() は閉じ済みの AudioContext で reject しうる
   const stop = async () => {
     node.port.onmessage = null;
-    const tracks = stream.getTracks();
-    tracks.forEach((t) => t.stop());
-    source.disconnect();
-    await ctx.close();
+    try {
+      stream.getTracks().forEach((t) => t.stop());
+      source.disconnect();
+      await ctx.close();
+    } catch (e) {
+      console.error("mic cleanup failed", e);
+    }
   };
 
   return { stop };
