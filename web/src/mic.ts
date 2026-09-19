@@ -24,12 +24,14 @@ export async function startMic(
   const source = ctx.createMediaStreamSource(stream);
   const node = new AudioWorkletNode(ctx, "pcm-worklet");
 
+  node.port.onmessage = (e) => {
+    onFrame(e.data.pcm, e.data.peak);
+  };
+
   source.connect(node);
 
-  console.log("sample rate: ", ctx.sampleRate);
-  console.log("state: ", ctx.state);
-
   const stop = async () => {
+    node.port.onmessage = null;
     const tracks = stream.getTracks();
     tracks.forEach((t) => t.stop());
     source.disconnect();

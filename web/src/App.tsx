@@ -19,9 +19,24 @@
 
 import { startMic } from "./mic";
 
+// Step 3 の観察用。状態遷移を作るときに消す。
+// コンポーネントの外に置くのは、再描画のたびに初期化されないようにするため
+let count = 0;
+let peakInWindow = 0;
+let lastLogAt = performance.now();
+
 export function App() {
-  const getFrame = (pcm: ArrayBuffer, peek: number) => {
-    console.log(pcm, peek);
+  const getFrame = (_pcm: ArrayBuffer, peak: number) => {
+    count++;
+    peakInWindow = Math.max(peakInWindow, peak);
+
+    const now = performance.now();
+    if (now - lastLogAt >= 1000) {
+      console.log(`${count} frames/sec, peak=${peakInWindow.toFixed(3)}`);
+      count = 0;
+      peakInWindow = 0;
+      lastLogAt = now;
+    }
   };
 
   const onClick = () => {
