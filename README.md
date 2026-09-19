@@ -44,7 +44,7 @@ npm run verify:phase0   # dev:server は止めておく
 
 ## 進捗
 
-- [ ] Phase 0: マイク音声を PCM16 16kHz でサーバへ送る
+- [x] Phase 0: マイク音声を PCM16 16kHz でサーバへ送る
 - [ ] Phase 1: ストリーミング STT
 - [ ] Phase 2: 翻訳と TTS
 - [ ] Phase 3: 割り込み、障害注入、縮退、再接続

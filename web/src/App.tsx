@@ -1,59 +1,115 @@
-// TODO(Phase 0): セッションの状態遷移と UI
-//
-// やること
-// - 状態を設計する。最低限 idle / connecting / ready / failed を区別する
-// - ありえない遷移をどう扱うか決める（例: Stop 後に遅れて届いた「接続完了」）
-// - Start / Stop ボタン、状態表示、失敗理由、入力レベルメーター、送信フレーム数を表示する
-// - Stop 後に直近の録音を再生できるようにする（GET /api/recordings/latest が wav を返す）
-//
-// 考えておくこと
-// - 20ms ごとに変わる値（レベル、フレーム数）を状態遷移と同じ場所に持つべきか
-//
-// scripts/verify-phase0.mjs が以下を前提にしている
-// - ボタンのテキストが "Start" / "Stop"
-// - data-testid="status" の要素に状態名（idle / connecting / ready / failed）が入る
-// - data-testid="frames" の要素に送信フレーム数が入る
-// - class="error" の要素に失敗理由が入る
-//
-// index.css に .badge / .badge.<状態名> / .error / .meter / .meter-fill を用意してある
-
-import { useRef } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { startSession, type Session } from "./session";
 
-// Step 3 の観察用。状態遷移を作るときに消す。
-// コンポーネントの外に置くのは、再描画のたびに初期化されないようにするため
-let count = 0;
-let peakInWindow = 0;
-let lastLogAt = performance.now();
+// 接続の状態。録音があるかは idle のときだけ意味を持つので、その状態の中に持たせる
+type State =
+  | { status: "idle"; hasRecording: boolean }
+  | { status: "connecting" }
+  | { status: "ready" }
+  | { status: "failed"; reason: string };
+
+type Event =
+  | { type: "start" }
+  | { type: "ready" }
+  | { type: "failed"; reason: string }
+  | { type: "stopped" };
+
+// ありえない遷移は現在の状態を返して無視する
+function reducer(state: State, event: Event): State {
+  switch (event.type) {
+    case "start":
+      return state.status === "idle" || state.status === "failed"
+        ? { status: "connecting" }
+        : state;
+    case "ready":
+      return state.status === "connecting" ? { status: "ready" } : state;
+    case "failed":
+      return state.status === "connecting" || state.status === "ready"
+        ? { status: "failed", reason: event.reason }
+        : state;
+    case "stopped":
+      // ready まで進んでいれば録音が残っている
+      return { status: "idle", hasRecording: state.status === "ready" };
+  }
+}
+
+type Meter = { frames: number; peak: number };
+const EMPTY_METER: Meter = { frames: 0, peak: 0 };
 
 export function App() {
-  const session = useRef<Session | undefined>(undefined);
-  const getFrame = (peak: number) => {
-    count++;
-    peakInWindow = Math.max(peakInWindow, peak);
+  const [state, dispatch] = useReducer(reducer, {
+    status: "idle",
+    hasRecording: false,
+  });
+  const [meter, setMeter] = useState(EMPTY_METER);
+  const session = useRef<Session | null>(null);
 
-    const now = performance.now();
-    if (now - lastLogAt >= 1000) {
-      console.log(`${count} frames/sec, peak=${peakInWindow.toFixed(3)}`);
-      count = 0;
-      peakInWindow = 0;
-      lastLogAt = now;
-    }
-  };
+  // タブを閉じるときにマイクを掴んだままにしない
+  useEffect(() => () => void session.current?.stop(), []);
 
-  const startRecording = () => {
+  const start = () => {
+    dispatch({ type: "start" });
+    setMeter(EMPTY_METER);
     session.current = startSession({
-      onReady: () => console.log("ready"),
-      onFailed: (e) => console.log(e, "failed"),
-      onFrame: getFrame,
+      onReady: () => dispatch({ type: "ready" }),
+      onFailed: (reason) => {
+        session.current = null;
+        dispatch({ type: "failed", reason });
+      },
+      onFrame: (peak) => setMeter((m) => ({ frames: m.frames + 1, peak })),
     });
   };
+
+  const stop = () => {
+    void session.current?.stop();
+    session.current = null;
+    dispatch({ type: "stopped" });
+  };
+
+  const active = state.status === "connecting" || state.status === "ready";
 
   return (
     <main>
       <h1>Speech AI Playground</h1>
-      <button onClick={startRecording}>start recording</button>
-      <button onClick={() => session.current?.stop()}>stop recording</button>
+
+      <section className="row">
+        <span className={`badge ${state.status}`} data-testid="status">
+          {state.status}
+        </span>
+        {active ? (
+          <button onClick={stop}>Stop</button>
+        ) : (
+          <button onClick={start}>Start</button>
+        )}
+      </section>
+
+      {state.status === "failed" && <p className="error">{state.reason}</p>}
+
+      <section>
+        <div className="meter">
+          <div
+            className="meter-fill"
+            style={{ width: `${Math.round(meter.peak * 100)}%` }}
+          />
+        </div>
+        <dl>
+          <dt>frames sent</dt>
+          <dd data-testid="frames">{meter.frames}</dd>
+          <dt>audio sent</dt>
+          <dd>{(meter.frames * 0.02).toFixed(1)}s</dd>
+        </dl>
+      </section>
+
+      {state.status === "idle" && state.hasRecording && (
+        <section>
+          <p>直近の録音（サーバが保存した wav）</p>
+          <audio
+            controls
+            preload="none"
+            src={`/api/recordings/latest?t=${Date.now()}`}
+          />
+        </section>
+      )}
     </main>
   );
 }
