@@ -48,7 +48,7 @@ npm run verify:phase2   # 録音を翻訳・合成まで流して遅延を測る
 
 - [x] Phase 0: マイク音声を PCM16 16kHz でサーバへ送る
 - [x] Phase 1: ストリーミング STT
-- [ ] Phase 2: 翻訳と TTS
+- [x] Phase 2: 翻訳と TTS
 - [ ] Phase 3: 割り込み、障害注入、縮退、再接続
 - [ ] Phase 4: End-to-End との比較
 - [ ] Phase 5: docs
