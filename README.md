@@ -44,6 +44,8 @@ npm run verify:phase1   # 録音を STT へ流して遅延を測る。dev:server
 npm run verify:phase2   # 録音を翻訳・合成まで流して遅延を測る。dev:server は止めておく
 ```
 
+`verify:phase2` は Gemini の可用性に依存する。503 が返ると成功する文が減り、p50 のチェックは遅延ではなく可用性の問題として FAIL する。チェック横の成功数（n=）でどちらか見分ける。
+
 ## 進捗
 
 - [x] Phase 0: マイク音声を PCM16 16kHz でサーバへ送る
