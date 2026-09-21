@@ -21,9 +21,11 @@ import { join } from "node:path";
 
 const ROOT = join(import.meta.dirname, "..");
 const FRAME = 640; // 20ms @ 16kHz / mono / 16bit
-// 最後の文の翻訳・合成が終わるまで待つ時間。Phase 1 の 3000ms では TTS の分が足りない。
-// translate・speak それぞれタイムアウトが 5000ms あり、直列に待つと最悪 10s を超える
-const TAIL_MS = 12000;
+// 全文が終端イベント（speech / translate_error / speak_error）に届くまで待つ上限。
+// TAIL_MS のような固定時間ではなく実際の到着を待つ（waitForAllTerminal 参照）が、
+// サーバが詰まった場合でもスクリプト自体は必ず終わるよう上限を置く
+const TERMINAL_WAIT_CAP_MS = 25000;
+const POLL_MS = 200;
 const MIN_AUDIO_SEC = 5; // これより短い録音では発話が足りず遅延が測れない
 // server/src/index.ts と同じ形。既定は 8787 だが、その 8787 を別プロセスが握っている場合に
 // 逃げ場が要る（下の assertPortFree 参照）
@@ -32,7 +34,10 @@ const PORT = Number(process.env.PORT ?? 8787);
 // 段ごとの p95 の閾値。GEMINI_API_KEY が無く実測がまだ無いので仮値を置く。
 // 実測が取れたら、その p95 の 2 倍に締め直す
 const TRANSLATE_P95_MS = 3000;
-const SPEAK_P95_MS = 5000;
+// speak() のタイムアウト（server/src/speak.ts、既定 5000ms）と同じか超える値を置くと、
+// 成功した合成は定義上必ずタイムアウト未満なのでこの閾値は絶対に FAIL しない飾りになる。
+// タイムアウトより厳密に小さい値にする
+const SPEAK_P95_MS = 4000;
 const END_TO_MP3_P95_MS = 8000;
 
 let failures = 0;
@@ -56,6 +61,9 @@ await waitForPort();
 // seq -> { seq, text, startMs, endMs, reason, translateMs?, english?, speakMs?, queuedMs?, mp3?, at?, error? }
 // Map の反復順は挿入順、つまり "sentence" イベントが届いた順になる。これを seq の連番検査に使う
 const sentences = new Map();
+// 終端イベント（speech / translate_error / speak_error）が届いた seq。
+// これが sentences の全 seq を覆っていない = どこかの文が結果を返さないまま消えている
+const terminalSeqs = new Set();
 // "speech" の JSON を受けてから、直後のバイナリが届くまでの間だけ埋まる
 let awaitingSpeech = null;
 // 説明のないバイナリ（awaitingSpeech が無い時に届いたもの）の件数。1 件でもあれば実装がおかしい
@@ -101,12 +109,14 @@ ws.addEventListener("message", (e) => {
     console.log(`${head} translation seq=${m.seq}  ${m.text}`);
   } else if (m.type === "speech") {
     const s = sentenceOf(m.seq);
-    if (s) Object.assign(s, { speakMs: m.speakMs, queuedMs: m.queuedMs });
+    if (s) Object.assign(s, { speakMs: m.speakMs, queuedMs: m.queuedMs, bytes: m.bytes });
+    terminalSeqs.add(m.seq);
     awaitingSpeech = { seq: m.seq, at: m.t };
     console.log(`${head} speech seq=${m.seq}  bytes=${m.bytes}  speak=${m.speakMs}ms  queued=${m.queuedMs}ms`);
   } else if (m.type === "translate_error" || m.type === "speak_error") {
     const s = sentenceOf(m.seq);
     if (s) Object.assign(s, { error: m.reason });
+    terminalSeqs.add(m.seq);
     console.log(`${head} ${m.type} seq=${m.seq}  ${m.reason}`);
   } else {
     // partial / final / speech_started / utterance_end / stt_error は Phase 1 の検証対象。
@@ -135,7 +145,12 @@ try {
   const sendElapsed = performance.now() - sendStart;
   const sentMs = sent / 2 / 16;
   console.log(`--- 送り終えた audio=${(sentMs / 1000).toFixed(2)}s wall=${(sendElapsed / 1000).toFixed(2)}s ---`);
-  await new Promise((r) => setTimeout(r, TAIL_MS));
+  const wait = await waitForAllTerminal();
+  console.log(
+    wait.finished
+      ? `--- 全文が終端イベントに届いた (${wait.waitedMs}ms) ---`
+      : `--- 上限 ${TERMINAL_WAIT_CAP_MS}ms に到達。まだ終端していない文が残っている (${wait.waitedMs}ms) ---`,
+  );
   ws.close(1000);
 
   report();
@@ -147,6 +162,21 @@ try {
 
 console.log(failures === 0 ? "\nall passed" : `\n${failures} failed`);
 process.exit(failures === 0 ? 0 : 1);
+
+// sentences に載っている全ての文が終端イベントに届くまで待つ。TAIL_MS のような固定時間だと
+// 短すぎれば最後の文を測り損ね、長すぎれば毎回無駄に待つ。ここでは実際に揃うのを待ち、
+// サーバが詰まって永遠に揃わない場合のために上限だけ置く
+async function waitForAllTerminal() {
+  const start = performance.now();
+  for (;;) {
+    const elapsed = performance.now() - start;
+    const list = [...sentences.values()];
+    const allTerminal = list.length > 0 && list.every((s) => terminalSeqs.has(s.seq));
+    if (allTerminal) return { finished: true, waitedMs: Math.round(elapsed) };
+    if (elapsed >= TERMINAL_WAIT_CAP_MS) return { finished: false, waitedMs: Math.round(elapsed) };
+    await new Promise((r) => setTimeout(r, POLL_MS));
+  }
+}
 
 function report() {
   // Map の反復順 = sentence イベントが届いた順。seq の連番・順序の検査にそのまま使う
@@ -176,6 +206,14 @@ function report() {
   // 後続の FAIL が実装の不具合ではなく環境（鍵が無い）由来だと読み手がすぐ分かる
   check("GEMINI_API_KEY が設定されている", hasGeminiKey);
   check("文が 1 つ以上ある", list.length > 0, `n=${list.length}`);
+  // ここが無いと、speech も translate_error も speak_error も来なかった文は
+  // どの分布にも現れず、静かに消えたまま「all passed」になり得る
+  const unterminated = list.filter((s) => !terminalSeqs.has(s.seq));
+  check(
+    "全文が終端イベント（speech / translate_error / speak_error）に届く",
+    list.length > 0 && unterminated.length === 0,
+    `未到達 n=${unterminated.length}`,
+  );
   check(
     "句点で終わる文が 8 割以上",
     list.length > 0 && reasons.punctuation / list.length >= 0.8,
@@ -194,6 +232,14 @@ function report() {
     `n=${spoken.length}`,
   );
   check("説明のないバイナリが届いていない", strayBinary === 0, `n=${strayBinary}`);
+  // bytes は speech の JSON が申告した mp3 の長さ。フレーム順だけを頼りに対応付けている
+  // ペアリングが、実際に同じ長さかを見て初めて検証になる。ずれていれば別の文の音声が
+  // 混ざっている可能性がある（再生では違う文の音声が鳴るという形で現れるはず）
+  check(
+    "speech の bytes と直後のバイナリフレームの長さが一致する",
+    spoken.length > 0 && spoken.every((s) => s.mp3.length === s.bytes),
+    `n=${spoken.length}`,
+  );
   check(...seqOrderCheck(list));
   check(
     `翻訳 p95 が ${TRANSLATE_P95_MS}ms 未満`,

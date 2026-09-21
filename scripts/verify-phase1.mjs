@@ -46,6 +46,12 @@ ws.binaryType = "arraybuffer";
 const started = performance.now();
 
 ws.addEventListener("message", (e) => {
+  // Phase 2 以降、サーバは同じ /audio に mp3 のバイナリフレームも流す（speech の JSON の直後）。
+  // このスクリプトは Phase 1 の JSON だけを読めばよく、音声は要らないので読み飛ばす。
+  // ここで弾かないと JSON.parse がバイナリで SyntaxError を投げ、それが catch の外
+  // （EventTarget のリスナーの中）で起きるため uncaught exception でプロセスごと落ち、
+  // finally の server.kill() が走らずサーバがポートを握ったまま残る
+  if (typeof e.data !== "string") return;
   const m = JSON.parse(e.data);
   events.push(m);
   const delay = m.latencyMs === undefined ? `lag=${String(m.lagMs).padStart(4)}ms` : `lat=${String(m.latencyMs).padStart(4)}ms`;
