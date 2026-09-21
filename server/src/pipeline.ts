@@ -16,6 +16,8 @@ export type PipelineEvent =
 export type PipelineDeps = {
   translate: (japanese: string, context?: TranslationContext) => Promise<string>;
   speak: (english: string) => Promise<Uint8Array>;
+  // 同期的に投げてはいけない。投げると drain の途中で例外になり、残りのイベントとそれ以降の
+  // seq が全部失われたまま順番が止まる
   onEvent: (event: PipelineEvent) => void;
   now?: () => number;
 };
@@ -24,7 +26,8 @@ export function createPipeline({ translate, speak, onEvent, now = () => performa
   // seq ごとの結果と、揃った時刻。揃った順ではなく seq 順に取り出す
   const done = new Map<number, { events: PipelineEvent[]; readyAt: number }>();
   let nextToSend = 1;
-  // 直前に送り終えた文。次の文の文脈に渡す
+  // 直近に訳が確定した文。後から始まる文の文脈として渡す。
+  // 完了順が入れ替わると、渡る文脈が 1 文遅れることがある
   let context: TranslationContext | undefined;
 
   const drain = () => {
@@ -47,6 +50,8 @@ export function createPipeline({ translate, speak, onEvent, now = () => performa
       // 文脈は投入時点で直前の文の訳が出ていれば使う。待たない
       english = await translate(sentence.text, context);
       events.push({ type: "translation", seq: sentence.seq, text: english, translateMs: Math.round(now() - startedAt) });
+      // 訳が決まった時点で文脈を更新する。合成の成否を待たない
+      context = { japanese: sentence.text, english };
     } catch (e) {
       events.push({ type: "translate_error", seq: sentence.seq, reason: reasonOf(e) });
     }
@@ -61,7 +66,6 @@ export function createPipeline({ translate, speak, onEvent, now = () => performa
       } catch (e) {
         events.push({ type: "speak_error", seq: sentence.seq, reason: reasonOf(e) });
       }
-      context = { japanese: sentence.text, english };
     }
 
     done.set(sentence.seq, { events, readyAt: now() });

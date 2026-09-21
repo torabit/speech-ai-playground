@@ -44,7 +44,7 @@ test("後の文が先に終わっても順序を保って送る", async () => {
   p.submit(sentence(2, "二。"));
   await new Promise((r) => setTimeout(r, 20));
   // 2 の翻訳と合成が終わっていても、1 を待つ間は何も出ない
-  assert.deepEqual(events, []);
+  assert.equal(events.length, 0);
   first.resolve("en:一。");
   await new Promise((r) => setTimeout(r, 20));
   assert.deepEqual(events.map((e) => [e.type, e.seq]), [
@@ -53,6 +53,26 @@ test("後の文が先に終わっても順序を保って送る", async () => {
   // 2 は自分の処理を終えてから 1 を待った。その待ち時間が queuedMs に出る
   const speech2 = events.find((e) => e.type === "speech" && e.seq === 2) as { queuedMs: number };
   assert.ok(speech2.queuedMs > 0, `queuedMs=${speech2.queuedMs}`);
+});
+
+test("先に終わった後続がいても、失敗した文の枠を空けてから届く", async () => {
+  const events: PipelineEvent[] = [];
+  const first = deferred<string>();
+  const p = createPipeline({
+    translate: async (japanese) => (japanese === "一。" ? first.promise : `en:${japanese}`),
+    speak: async () => mp3,
+    onEvent: (e) => events.push(e),
+  });
+  p.submit(sentence(1, "一。"));
+  p.submit(sentence(2, "二。"));
+  await new Promise((r) => setTimeout(r, 20));
+  // 2 の翻訳と合成が終わっていても、1 の結果が決まるまでは何も出ない
+  assert.equal(events.length, 0);
+  first.reject(new Error("boom"));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(events.map((e) => [e.type, e.seq]), [
+    ["translate_error", 1], ["translation", 2], ["speech", 2],
+  ]);
 });
 
 test("翻訳が失敗しても後続が届く", async () => {
