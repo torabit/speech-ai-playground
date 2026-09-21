@@ -36,6 +36,8 @@ export function useSpeechQueue() {
     playingSeq,
     onEnded: finish,
     reset: () => {
+      // Stop で止めたのに英語が鳴り続けないよう、まず再生を止める
+      ref.current?.pause();
       queue.current.forEach((q) => URL.revokeObjectURL(q.url));
       queue.current = [];
       finish();
