@@ -31,19 +31,30 @@ const MIN_AUDIO_SEC = 5; // これより短い録音では発話が足りず遅�
 // 逃げ場が要る（下の assertPortFree 参照）
 const PORT = Number(process.env.PORT ?? 8787);
 
-// 段ごとの p95 の閾値。既定モデル（gemini-3.1-flash-lite）で 2026-09-22 に測った実測 p95 の 2 倍。
-// 2026-09-19T14-16-07.846Z.wav（44s、6 文中 5 文が Gemini の 503「高負荷」で失敗、成功 n=1）と
-// 2026-09-19T14-22-14.650Z.wav（11s、成功 n=4）の成功文をプールして n=5。
-// 実行中も Gemini が断続的に 503 を返していて、成功しなかった文は分布に入れていない。
-// n=5 は p95 と呼ぶには小さすぎるサンプルで、この日の 503 の頻度に強く左右された数字でもある
-const TRANSLATE_P95_MS = 2834; // 実測 p95 1417ms（n=5）の 2 倍
+// 段ごとの閾値は p95 ではなく p50（中央値）に対して張る。成功した翻訳・合成は定義上
+// 必ず 5 秒のタイムアウト未満に収まるので、p95 は「タイムアウト未満のどこか」を測っているに
+// 過ぎない。サンプルが数件しかない状態では、たまたま遅かった 1 件が p95 をタイムアウト際まで
+// 押し上げるだけで FAIL になる。それは回帰ではなく Gemini がその時混んでいただけで、
+// 健全な日でも赤くなるゲートは読まれなくなる。p50 は 1 件の外れ値では動かないが、
+// 全体が遅くなる回帰（翻訳が軒並み倍かかる、等）には反応する。p95 は summarize() の出力には
+// 引き続き出す（分布そのものが計測の目的なので）。PASS/FAIL の判定だけ p50 に変える
+//
+// 既定モデル（gemini-3.1-flash-lite）で測った、個々の値までログか算出で分かる回だけを
+// プールした実測 p50 の 2 倍を、読みやすい数に丸めた値。
+// 対象: 2026-09-19T14-16-07.846Z.wav（44s、run1 n=1・run4[確認run] n=1・round1 修正確認 n=3）と
+// 2026-09-19T14-22-14.650Z.wav（11s、round1 修正確認 n=1）。
+// 11s の最初の回（run2、成功 n=4）は集計値（mean/p50/max）しかログに残っておらず、
+// 4 件のうち 2 件の個別値が代数的に確定できないため translateMs / 文末→mp3 の中央値には使えず除外。
+// speakMs は毎回個々の値がログに出るので run2 の 4 件も含めている
+const TRANSLATE_P50_MS = 3700; // 実測 p50 1833ms（n=6）の 2 倍（3666）を丸めた
 // speak() のタイムアウト（server/src/speak.ts、既定 5000ms）と同じか超える値を置くと、
 // 成功した合成は定義上必ずタイムアウト未満なのでこの閾値は絶対に FAIL しない飾りになる。
-// タイムアウトより厳密に小さい値にする。
-// 実測 p95 は 2588ms（n=5、上と同じ 2 回の実行）。素直に 2 倍すると 5176ms になり
-// タイムアウト制約を破るので、5000ms 未満に収まる 4500ms に抑える（実測 p95 の約 1.74 倍）
-const SPEAK_P95_MS = 4500;
-const END_TO_MP3_P95_MS = 8156; // 実測 p95 4078ms（n=5、上と同じ 2 回の実行）の 2 倍
+// タイムアウトより厳密に小さい値にする
+const SPEAK_P50_MS = 4100; // 実測 p50 2032ms（n=10、全 5 回分）の 2 倍（4064）を丸めた。5000ms 未満
+const END_TO_MP3_P50_MS = 10700; // 実測 p50 5373ms（n=6、上の translateMs と同じ回）の 2 倍（10746）を丸めた
+// p50 を主張するにはサンプルが要る。3 件未満の成功は「遅い」ではなく「上流が落ちている」ことの
+// 方が支配的なので、中央値を計算せずにこの理由で FAIL させる（下の各 check 参照）
+const MIN_SUCCESS_FOR_P50 = 3;
 
 let failures = 0;
 const check = (name, ok, detail = "") => {
@@ -254,21 +265,20 @@ function report() {
     `n=${spoken.length}`,
   );
   check(...seqOrderCheck(list));
-  check(
-    `翻訳 p95 が ${TRANSLATE_P95_MS}ms 未満`,
-    translated.length > 0 && p(translated.map((s) => s.translateMs), 0.95) < TRANSLATE_P95_MS,
-    `n=${translated.length} p95=${p(translated.map((s) => s.translateMs), 0.95)}ms`,
-  );
-  check(
-    `合成 p95 が ${SPEAK_P95_MS}ms 未満`,
-    spoken.length > 0 && p(spoken.map((s) => s.speakMs), 0.95) < SPEAK_P95_MS,
-    `n=${spoken.length} p95=${p(spoken.map((s) => s.speakMs), 0.95)}ms`,
-  );
-  check(
-    `文末から mp3 まで p95 が ${END_TO_MP3_P95_MS}ms 未満`,
-    endToMp3.length > 0 && p(endToMp3, 0.95) < END_TO_MP3_P95_MS,
-    `n=${endToMp3.length} p95=${p(endToMp3, 0.95)}ms`,
-  );
+  checkP50("翻訳", translated.map((s) => s.translateMs), TRANSLATE_P50_MS);
+  checkP50("合成", spoken.map((s) => s.speakMs), SPEAK_P50_MS);
+  checkP50("文末から mp3 まで", endToMp3, END_TO_MP3_P50_MS);
+}
+
+// 段ごとの p50 チェック。3 件未満の成功では中央値を主張せず、その理由で FAIL する。
+// 3 件未満は「たまたま遅かった」より「上流が落ちていて成功例がほぼ無い」ことの方が
+// 支配的なので、n をそのまま理由に出して可用性の問題と分かるようにする
+function checkP50(label, values, thresholdMs) {
+  if (values.length < MIN_SUCCESS_FOR_P50) {
+    check(`${label} p50 が ${thresholdMs}ms 未満`, false, `n=${values.length}（${MIN_SUCCESS_FOR_P50} 未満、可用性の問題として扱う）`);
+    return;
+  }
+  check(`${label} p50 が ${thresholdMs}ms 未満`, p(values, 0.5) < thresholdMs, `n=${values.length} p50=${p(values, 0.5)}ms`);
 }
 
 // seq が 1 から連番で、届いた順どおりになっているかを見る。
