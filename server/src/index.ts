@@ -5,6 +5,10 @@ import { createNodeWebSocket } from "@hono/node-ws";
 import { Hono } from "hono";
 import { encodeWav } from "./wav.ts";
 import { connectStt, type SttConnection } from "./deepgram.ts";
+import { createAssembler, type Assembler } from "./sentences.ts";
+import { translate } from "./translate.ts";
+import { speak } from "./speak.ts";
+import { createPipeline } from "./pipeline.ts";
 
 // server/.env を読む。無くても起動はする（Phase 0 の録音だけなら鍵は要らない）
 try {
@@ -16,6 +20,9 @@ try {
 const PORT = Number(process.env.PORT ?? 8787);
 const SAMPLE_RATE = 16000;
 const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-2.5-flash-lite";
+const DEEPGRAM_TTS_MODEL = process.env.DEEPGRAM_TTS_MODEL ?? "aura-2-thalia-en";
 const RECORDINGS_DIR = join(import.meta.dirname, "../../recordings");
 
 mkdirSync(RECORDINGS_DIR, { recursive: true });
@@ -64,6 +71,9 @@ app.get(
     const intervals: number[] = [];
     let lastArrival: number | undefined;
     let stt: SttConnection | undefined;
+    // pipeline とセットで接続ごとに作る。seq はどちらも 1 始まりなので、
+    // 接続間で使い回すと 2 本目の接続が最初の seq を待ち続けて詰まる
+    let assembler: Assembler | undefined;
     let forwardedBytes = 0;
     // 遅延の原点。接続時刻ではなく最初のフレームが届いた時刻にする。
     // マイクの起動はブラウザ側で接続の後に走るので、connectedAt を原点にすると
@@ -90,12 +100,47 @@ app.get(
           toBrowser(ws, { type: "stt_error", reason: "DEEPGRAM_API_KEY が設定されていない" });
           return;
         }
+
+        const pipeline = createPipeline({
+          translate: (japanese, context) =>
+            translate(GEMINI_API_KEY!, GEMINI_MODEL, japanese, context),
+          speak: (english) => speak(DEEPGRAM_API_KEY!, DEEPGRAM_TTS_MODEL, english),
+          // pipeline は自分の drain の中からこれを呼ぶ。ここで投げると drain が止まり、
+          // この文以降の seq が全部失われたまま二度と進まなくなる（pipeline.ts 参照）。
+          // ws は接続が切れた後でも呼ばれ得るので、送信の失敗はここで握りつぶす
+          onEvent: (event) => {
+            try {
+              if (event.type !== "speech") return toBrowser(ws, { ...event });
+              // JSON を先に送り、直後のバイナリがその mp3 だという契約にする
+              toBrowser(ws, { type: "speech", seq: event.seq, bytes: event.mp3.byteLength, speakMs: event.speakMs, queuedMs: event.queuedMs });
+              // mp3 の型は Uint8Array<ArrayBufferLike>（speak.ts の宣言）だが、
+              // 中身は fetch の arrayBuffer() 由来で常に ArrayBuffer。ws.send の型が
+              // 求める Uint8Array<ArrayBuffer> と実体は一致するので、コピーせずキャストする
+              ws.send(event.mp3 as Uint8Array<ArrayBuffer>);
+            } catch (e) {
+              console.error(`[pipeline] onEvent 送信失敗: ${e instanceof Error ? e.message : String(e)}`);
+            }
+          },
+        });
+
+        assembler = createAssembler((sentence) => {
+          toBrowser(ws, { type: "sentence", ...sentence });
+          // 鍵が無ければ pipeline に投げても必ず失敗するだけなので、ここで打ち切る
+          if (!GEMINI_API_KEY) return toBrowser(ws, { type: "translate_error", seq: sentence.seq, reason: "GEMINI_API_KEY が設定されていない" });
+          pipeline.submit(sentence);
+        });
+
         stt = connectStt(DEEPGRAM_API_KEY, {
           onPartial: (text, startMs, endMs) => toBrowser(ws, { type: "partial", text, startMs, endMs }),
-          onFinal: (text, speechFinal, startMs, endMs) =>
-            toBrowser(ws, { type: "final", text, speechFinal, startMs, endMs }),
+          onFinal: (text, speechFinal, startMs, endMs) => {
+            toBrowser(ws, { type: "final", text, speechFinal, startMs, endMs });
+            assembler?.pushFinal(text, speechFinal, startMs, endMs);
+          },
           onSpeechStarted: () => toBrowser(ws, { type: "speech_started" }),
-          onUtteranceEnd: () => toBrowser(ws, { type: "utterance_end" }),
+          onUtteranceEnd: () => {
+            toBrowser(ws, { type: "utterance_end" });
+            assembler?.pushUtteranceEnd();
+          },
           onError: (reason) => {
             console.error(`[stt] ${reason}`);
             toBrowser(ws, { type: "stt_error", reason });
@@ -118,6 +163,8 @@ app.get(
       },
       onClose: (event) => {
         openConnections--;
+        // 切断時点で文が溜まったまま止まっていることがある。stt を閉じる前に吐かせる
+        assembler?.flush();
         stt?.close();
         const pcm = Buffer.concat(chunks);
         const audioSec = pcm.length / 2 / SAMPLE_RATE;
