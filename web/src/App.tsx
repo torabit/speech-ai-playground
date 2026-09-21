@@ -1,9 +1,11 @@
 import { Transcript } from "./Transcript";
 import { useRecordingPlayer } from "./useRecordingPlayer";
+import { useSpeechQueue } from "./useSpeechQueue";
 import { useSpeechSession } from "./useSpeechSession";
 
 export function App() {
-  const { state, start, stop } = useSpeechSession();
+  const queue = useSpeechQueue();
+  const { state, start, stop } = useSpeechSession(queue.push);
   const player = useRecordingPlayer();
   const { connection, meter } = state;
 
@@ -18,7 +20,18 @@ export function App() {
         <span className={`badge ${connection.status}`} data-testid="status">
           {connection.status}
         </span>
-        {active ? <button onClick={stop}>Stop</button> : <button onClick={start}>Start</button>}
+        {active ? (
+          <button
+            onClick={() => {
+              stop();
+              queue.reset(); // 再生中の英語音声とキューを止める。放っておくと Stop 後も鳴り続ける
+            }}
+          >
+            Stop
+          </button>
+        ) : (
+          <button onClick={start}>Start</button>
+        )}
         {/* Deepgram が発話中と判断している区間 */}
         <span className={`vad ${state.speaking ? "on" : ""}`} title="speech_started / utterance_end">
           {state.speaking ? "● speaking" : "○ silent"}
@@ -48,8 +61,12 @@ export function App() {
           partial={state.partial}
           onSeek={recordingSrc ? player.seek : undefined}
           playheadMs={player.playheadMs}
+          playingSeq={queue.playingSeq}
         />
       </section>
+
+      {/* 英語音声の再生専用。画面には出さず、キューが順に src を差し替える */}
+      <audio ref={queue.ref} onEnded={queue.onEnded} hidden />
 
       {recordingSrc && (
         <section>

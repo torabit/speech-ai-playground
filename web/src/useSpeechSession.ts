@@ -59,27 +59,47 @@ function reducer(state: State, action: Action): State {
   }
 }
 
+// 該当 seq の行だけを差し替える。sentence より前に translation 等が届くことはない（サーバは
+// 文の確定を待ってから pipeline に投げる）ので、該当行が無いことはない想定だが、
+// 万一無ければ何もしない（配列を素通りさせる）だけで安全に倒れる
+function patch(lines: Line[], seq: number, fields: Partial<Line>): Line[] {
+  return lines.map((l) => (l.seq === seq ? { ...l, ...fields } : l));
+}
+
 function applyServerMessage(state: State, m: ServerMessage): State {
   switch (m.type) {
     case "partial":
       return { ...state, partial: m.text };
     case "final":
-      // 確定したら部分結果を消して行に積む
-      return {
-        ...state,
-        partial: "",
-        lines: [...state.lines, { text: m.text, latencyMs: m.latencyMs, startMs: m.startMs, endMs: m.endMs }],
-      };
+      // 行は文単位（sentence）に積む。final は部分結果の表示にだけ使い、消すのは sentence に任せる
+      return { ...state, partial: "" };
     case "speech_started":
       return { ...state, speaking: true };
     case "utterance_end":
       return { ...state, speaking: false };
     case "stt_error":
       return { ...state, sttError: m.reason };
+    case "sentence":
+      return {
+        ...state,
+        lines: [
+          ...state.lines,
+          { seq: m.seq, text: m.text, english: null, error: null, startMs: m.startMs, endMs: m.endMs, translateMs: null, speakMs: null },
+        ],
+      };
+    case "translation":
+      return { ...state, lines: patch(state.lines, m.seq, { english: m.text, translateMs: m.translateMs }) };
+    case "speech":
+      return { ...state, lines: patch(state.lines, m.seq, { speakMs: m.speakMs }) };
+    case "translate_error":
+    case "speak_error":
+      return { ...state, lines: patch(state.lines, m.seq, { error: m.reason }) };
   }
 }
 
-export function useSpeechSession() {
+// onSpeech: 英語音声（mp3）が届いたときの通知。再生キューへ渡すのは呼び出し側の責務にして、
+// このフックは接続の状態管理に専念する
+export function useSpeechSession(onSpeech: (seq: number, mp3: ArrayBuffer) => void) {
   const [state, dispatch] = useReducer(reducer, INITIAL);
   const session = useRef<Session | null>(null);
   // 20ms ごとに dispatch すると画面全体が毎秒 50 回再描画される。溜めて 100ms ごとに反映する
@@ -108,6 +128,7 @@ export function useSpeechSession() {
         p.peak = 0;
       },
       onMessage: (message) => dispatch({ type: "server", message }),
+      onSpeech,
     });
   };
 

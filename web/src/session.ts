@@ -14,6 +14,11 @@ export type ServerMessage = { t: number; audioMs: number; lagMs: number } & (
   | { type: "speech_started" }
   | { type: "utterance_end" }
   | { type: "stt_error"; reason: string }
+  | { type: "sentence"; seq: number; text: string; startMs: number; endMs: number; reason: "punctuation" | "silence" | "length" }
+  | { type: "translation"; seq: number; text: string; translateMs: number }
+  | { type: "speech"; seq: number; bytes: number; speakMs: number; queuedMs: number }
+  | { type: "translate_error"; seq: number; reason: string }
+  | { type: "speak_error"; seq: number; reason: string }
 );
 
 export type SessionHandlers = {
@@ -21,6 +26,7 @@ export type SessionHandlers = {
   onFailed: (reason: string) => void;
   onFrame: (peak: number) => void;
   onMessage: (message: ServerMessage) => void;
+  onSpeech: (seq: number, mp3: ArrayBuffer) => void;
 };
 
 export type Session = { stop: () => Promise<void> };
@@ -70,10 +76,20 @@ export function startSession(handlers: SessionHandlers): Session {
     }
   };
   ws.binaryType = "arraybuffer";
+  // speech の JSON とその直後のバイナリ（mp3）は対で届く契約（server/src/index.ts 参照）。
+  // JSON で seq を覚えておき、次のバイナリフレームをその seq の mp3 として渡す
+  let awaitingSpeech: number | null = null;
   ws.onmessage = (e) => {
-    if (typeof e.data !== "string") return;
+    if (typeof e.data !== "string") {
+      if (awaitingSpeech === null) return; // 説明のない音声は捨てる
+      handlers.onSpeech(awaitingSpeech, e.data as ArrayBuffer);
+      awaitingSpeech = null;
+      return;
+    }
     try {
-      handlers.onMessage(JSON.parse(e.data) as ServerMessage);
+      const message = JSON.parse(e.data) as ServerMessage;
+      if (message.type === "speech") awaitingSpeech = message.seq;
+      handlers.onMessage(message);
     } catch {
       // 壊れた JSON は無視する。セッション自体は続ける
     }
