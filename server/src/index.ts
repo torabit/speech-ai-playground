@@ -21,7 +21,7 @@ const PORT = Number(process.env.PORT ?? 8787);
 const SAMPLE_RATE = 16000;
 const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-2.5-flash-lite";
+const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-3.1-flash-lite";
 const DEEPGRAM_TTS_MODEL = process.env.DEEPGRAM_TTS_MODEL ?? "aura-2-thalia-en";
 const RECORDINGS_DIR = join(import.meta.dirname, "../../recordings");
 

@@ -1,9 +1,13 @@
 // Gemini で日本語 1 文を英語 1 文にする。
 //
-// thinkingConfig は付けない。それでモデルの既定を 2.5 系にしているのは、2.5 系がその既定で
-// thinking が off だから。3.1 と 3.5 の flash-lite は thinking_level の下限が minimal で、
-// 指定しても off にはできない。この差の実測（TTFT 等）は verify:phase2 で GEMINI_MODEL を
-// 差し替えて測る側の仕事で、ここで thinkingConfig を足して制御することはしない。
+// 既定モデルは gemini-3.1-flash-lite。gemini-2.5-flash-lite はこの鍵に対して HTTP 404
+// （"no longer available to new users"、案内先は gemini-3.5-flash-lite）。だが 3.5-flash-lite は
+// 実測時点で HTTP 503（"currently experiencing high demand"）が続き、5 秒のタイムアウトより
+// 503 が返ってくるまでの時間の方が長いので、この鍵からは事実上応答が返らない。3.1-flash-lite は
+// 応答する。GEMINI_MODEL で切り替えられるので、3.5 の状況が変わればそちらへ動かせる。
+// generationConfig.thinking_level は HTTP 400 Unknown name で存在しない（v1beta）。thinkingConfig
+// は付けない。1 文の翻訳では 3.x 系のレスポンスにも thoughtsTokenCount が出ないので、
+// この負荷では thinking の差は現れない。
 // ストリーミング（streamGenerateContent）は使わない。出力が数十トークンなので利得が小さい。
 
 const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -61,11 +65,17 @@ export async function translate(
   context?: TranslationContext,
   timeoutMs = 5000,
 ): Promise<string> {
+  // AbortSignal.timeout の中断は "The operation was aborted due to timeout" としか言わない。
+  // 上流が 503 を返している場合もここに出る（503 の到着が timeoutMs より遅いと中断が先に起きる）
   const response = await fetch(`${ENDPOINT}/${model}:generateContent`, {
     method: "POST",
     headers: { "x-goog-api-key": apiKey, "content-type": "application/json" },
     body: JSON.stringify(buildTranslateRequest(japanese, context)),
     signal: AbortSignal.timeout(timeoutMs),
+  }).catch((e) => {
+    throw e instanceof Error && e.name === "TimeoutError"
+      ? new Error(`gemini: ${timeoutMs}ms で打ち切り（上流が 503 を返している場合もここに出る）`)
+      : e;
   });
   if (!response.ok) throw new Error(`gemini: ${response.status} ${(await response.text()).slice(0, 200)}`);
   const json = await response.json();

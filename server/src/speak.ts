@@ -25,11 +25,17 @@ export async function speak(
   english: string,
   timeoutMs = 5000,
 ): Promise<Uint8Array> {
+  // AbortSignal.timeout の中断は "The operation was aborted due to timeout" としか言わない。
+  // 上流が非 200 を返している場合もここに出る（応答が timeoutMs より遅いと中断が先に起きる）
   const response = await fetch(buildSpeakUrl(model), {
     method: "POST",
     headers: { authorization: `Token ${apiKey}`, "content-type": "application/json" },
     body: JSON.stringify({ text: english }),
     signal: AbortSignal.timeout(timeoutMs),
+  }).catch((e) => {
+    throw e instanceof Error && e.name === "TimeoutError"
+      ? new Error(`deepgram tts: ${timeoutMs}ms で打ち切り（上流が遅延・エラー応答をしている場合もここに出る）`)
+      : e;
   });
   if (!response.ok) throw new Error(`deepgram tts: ${response.status} ${(await response.text()).slice(0, 200)}`);
   const mp3 = new Uint8Array(await response.arrayBuffer());
