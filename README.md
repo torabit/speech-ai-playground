@@ -40,12 +40,13 @@ API キーは `server/.env` に書く（`.env.example` を参照、gitignore 済
 ```sh
 npm run dev:web
 npm run verify:phase0   # dev:server は止めておく
+npm run verify:phase1   # 録音を STT へ流して遅延を測る。dev:server は止めておく
 ```
 
 ## 進捗
 
 - [x] Phase 0: マイク音声を PCM16 16kHz でサーバへ送る
-- [ ] Phase 1: ストリーミング STT
+- [x] Phase 1: ストリーミング STT
 - [ ] Phase 2: 翻訳と TTS
 - [ ] Phase 3: 割り込み、障害注入、縮退、再接続
 - [ ] Phase 4: End-to-End との比較
