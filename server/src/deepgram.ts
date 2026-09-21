@@ -8,7 +8,8 @@
 // - vad_events: 発話の開始を SpeechStarted として通知する
 
 export type SttEvents = {
-  onPartial: (text: string) => void;
+  // interim にも単語時刻が入るので、確定前の結果でも遅延を測れる
+  onPartial: (text: string, startMs: number, endMs: number) => void;
   // start と end はストリーム開始からの位置（ms）。Deepgram が結果ごとに返す
   onFinal: (text: string, speechFinal: boolean, startMs: number, endMs: number) => void;
   onSpeechStarted: () => void;
@@ -61,15 +62,13 @@ export function connectStt(apiKey: string, events: SttEvents): SttConnection {
         const alt = msg.channel?.alternatives?.[0];
         const text = alt?.transcript ?? "";
         if (!text) return; // 無音区間では空文字が届く
-        if (msg.is_final) {
-          // 単語の時刻を使う。msg.start は認識区間の先頭で、前の無音も含む
-          const words = alt?.words ?? [];
-          const segmentStart = msg.start ?? 0;
-          const first = words[0]?.start ?? segmentStart;
-          const last = words.at(-1)?.end ?? segmentStart + (msg.duration ?? 0);
-          events.onFinal(text, msg.speech_final === true, Math.round(first * 1000), Math.round(last * 1000));
-        }
-        else events.onPartial(text);
+        // 単語の時刻を使う。msg.start は認識区間の先頭で、前の無音も含む
+        const words = alt?.words ?? [];
+        const segmentStart = msg.start ?? 0;
+        const startMs = Math.round((words[0]?.start ?? segmentStart) * 1000);
+        const endMs = Math.round((words.at(-1)?.end ?? segmentStart + (msg.duration ?? 0)) * 1000);
+        if (msg.is_final) events.onFinal(text, msg.speech_final === true, startMs, endMs);
+        else events.onPartial(text, startMs, endMs);
         return;
       }
       case "SpeechStarted":

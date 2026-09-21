@@ -65,13 +65,22 @@ app.get(
     let lastArrival: number | undefined;
     let stt: SttConnection | undefined;
     let forwardedBytes = 0;
+    // 遅延の原点。接続時刻ではなく最初のフレームが届いた時刻にする。
+    // マイクの起動はブラウザ側で接続の後に走るので、connectedAt を原点にすると
+    // その待ち時間（許可ダイアログを含む）がすべての遅延に乗ってしまう
+    let firstFrameAt: number | undefined;
 
     // ブラウザへは JSON のテキストで返す。音声はバイナリ、結果はテキストで方向が分かれる
     const toBrowser = (ws: { send: (data: string) => void }, message: Record<string, unknown>) => {
-      const t = Math.round(performance.now() - connectedAt);
+      const t = Math.round(performance.now() - (firstFrameAt ?? connectedAt));
       const audioMs = Math.round(forwardedBytes / 2 / (SAMPLE_RATE / 1000));
-      // lag は「送った音声の長さ」と「いまの時刻」の差。転送と認識がどれだけ遅れているか
-      ws.send(JSON.stringify({ ...message, t, audioMs, lagMs: t - audioMs }));
+      // lag は「送った音声の長さ」と「いまの時刻」の差。送信が実時間から遅れていないか。
+      // 認識の遅れではない。音声の転送が滞っているかを見る値
+      const lagMs = t - audioMs;
+      // latency は「その単語を話し終えてから結果が届くまで」。認識の遅れはこちらで測る
+      const endMs = message["endMs"];
+      const latency = typeof endMs === "number" ? { latencyMs: t - endMs } : {};
+      ws.send(JSON.stringify({ ...message, t, audioMs, lagMs, ...latency }));
     };
 
     return {
@@ -82,7 +91,7 @@ app.get(
           return;
         }
         stt = connectStt(DEEPGRAM_API_KEY, {
-          onPartial: (text) => toBrowser(ws, { type: "partial", text }),
+          onPartial: (text, startMs, endMs) => toBrowser(ws, { type: "partial", text, startMs, endMs }),
           onFinal: (text, speechFinal, startMs, endMs) =>
             toBrowser(ws, { type: "final", text, speechFinal, startMs, endMs }),
           onSpeechStarted: () => toBrowser(ws, { type: "speech_started" }),
@@ -99,6 +108,7 @@ app.get(
       onMessage: (event) => {
         if (typeof event.data === "string") return;
         const now = performance.now();
+        firstFrameAt ??= now;
         if (lastArrival !== undefined) intervals.push(now - lastArrival);
         lastArrival = now;
         const pcm = event.data as ArrayBuffer;

@@ -68,7 +68,7 @@ function applyServerMessage(state: State, m: ServerMessage): State {
       return {
         ...state,
         partial: "",
-        lines: [...state.lines, { text: m.text, lagMs: m.lagMs, startMs: m.startMs, endMs: m.endMs }],
+        lines: [...state.lines, { text: m.text, latencyMs: m.latencyMs, startMs: m.startMs, endMs: m.endMs }],
       };
     case "speech_started":
       return { ...state, speaking: true };

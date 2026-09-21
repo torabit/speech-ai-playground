@@ -1,23 +1,16 @@
-// TODO(Phase 0): サーバとの接続とマイクをひとまとまりのセッションとして扱う
-//
-// やること
-// - `/audio` に WebSocket で接続する（Vite の proxy 経由で server の :8787 に届く）
-// - マイクのフレームをバイナリで送る
-// - 失敗を UI に伝える。対象は、接続できない、マイク許可が拒否された、途中で切断された、の 3 つ
-// - ユーザーが止めたときの切断を失敗として扱わない
-//
-// 考えておくこと
-// - 接続とマイク開始のどちらを先にするか。それはなぜか
-// - マイク許可ダイアログを待っている間に Stop されたらどうなるか
-//
-// 下のシグネチャは一案。変えてよい
+// サーバとの接続とマイクを、ひとまとまりのセッションとして扱う。
+// 接続を先に開き、開いてからマイクを取る。マイクの許可を待つ間に届く音声を捨てないため
 
 import { startMic, type Mic } from "./mic";
 
-// サーバから届く JSON。音声はバイナリで送り、結果はテキストで返る
+// サーバから届く JSON。音声はバイナリで送り、結果はテキストで返る。
+// t は最初のフレームが届いてからの経過、audioMs は送った音声の長さ。
+// lagMs = t - audioMs で、送信が実時間から遅れていないかを見る。認識の遅れではない
 export type ServerMessage = { t: number; audioMs: number; lagMs: number } & (
-  | { type: "partial"; text: string }
-  | { type: "final"; text: string; speechFinal: boolean; startMs: number; endMs: number }
+  // startMs と endMs はその結果が対応する音声の位置。
+  // latencyMs = t - endMs で、最後の単語を話し終えてから結果が届くまでの遅れ
+  | { type: "partial"; text: string; startMs: number; endMs: number; latencyMs: number }
+  | { type: "final"; text: string; speechFinal: boolean; startMs: number; endMs: number; latencyMs: number }
   | { type: "speech_started" }
   | { type: "utterance_end" }
   | { type: "stt_error"; reason: string }

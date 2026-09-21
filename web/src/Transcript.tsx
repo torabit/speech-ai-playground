@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-export type Line = { text: string; lagMs: number; startMs: number; endMs: number };
+export type Line = { text: string; latencyMs: number; startMs: number; endMs: number };
 
 type Props = {
   lines: Line[];
@@ -47,7 +47,8 @@ export function Transcript({ lines, partial, onSeek, playheadMs }: Props) {
           title={onSeek ? `${(line.startMs / 1000).toFixed(1)}s から再生` : "録音は停止後に再生できる"}
         >
           <span className="text">{line.text}</span>
-          <span className="lag">{line.lagMs}ms</span>
+          {/* 最後の単語を話し終えてから確定が届くまで */}
+          <span className="lag" title="話し終えてから確定するまでの遅れ">{line.latencyMs}ms</span>
         </div>
       ))}
       {/* 確定前。まだ書き換わることを色で示す */}
