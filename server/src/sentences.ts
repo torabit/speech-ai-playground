@@ -48,6 +48,12 @@ export function createAssembler(onSentence: (s: Sentence) => void, maxChars = 10
     }
   };
 
+  const flushPending = () => {
+    if (!pending) return;
+    emit(pending, "silence");
+    pending = "";
+  };
+
   return {
     pushFinal: (text, speechFinal, startMs, endMs) => {
       if (text.trim()) {
@@ -66,14 +72,10 @@ export function createAssembler(onSentence: (s: Sentence) => void, maxChars = 10
       }
     },
     pushUtteranceEnd: () => {
-      if (!pending) return;
-      emit(pending, "silence");
-      pending = "";
+      flushPending();
     },
     flush: () => {
-      if (!pending) return;
-      emit(pending, "silence");
-      pending = "";
+      flushPending();
     },
   };
 }
