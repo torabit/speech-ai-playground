@@ -80,6 +80,9 @@ export function startSession(handlers: SessionHandlers): Session {
   // JSON で seq を覚えておき、次のバイナリフレームをその seq の mp3 として渡す
   let awaitingSpeech: number | null = null;
   ws.onmessage = (e) => {
+    // Stop 後に届くメッセージは、もう存在しないセッションのもの。サーバは切断時に溜まっている
+    // 文を flush するので、Stop 直後にもう 1 通ぐらい届くことがある。ハンドラを一切呼ばず捨てる
+    if (stopped) return;
     if (typeof e.data !== "string") {
       if (awaitingSpeech === null) return; // 説明のない音声は捨てる
       handlers.onSpeech(awaitingSpeech, e.data as ArrayBuffer);

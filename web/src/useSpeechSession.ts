@@ -84,7 +84,7 @@ function applyServerMessage(state: State, m: ServerMessage): State {
         ...state,
         lines: [
           ...state.lines,
-          { seq: m.seq, text: m.text, english: null, error: null, startMs: m.startMs, endMs: m.endMs, translateMs: null, speakMs: null },
+          { seq: m.seq, text: m.text, english: null, translateError: null, speakError: null, startMs: m.startMs, endMs: m.endMs, translateMs: null, speakMs: null },
         ],
       };
     case "translation":
@@ -92,8 +92,10 @@ function applyServerMessage(state: State, m: ServerMessage): State {
     case "speech":
       return { ...state, lines: patch(state.lines, m.seq, { speakMs: m.speakMs }) };
     case "translate_error":
+      return { ...state, lines: patch(state.lines, m.seq, { translateError: m.reason }) };
     case "speak_error":
-      return { ...state, lines: patch(state.lines, m.seq, { error: m.reason }) };
+      // 翻訳は届いている（else 分岐なら english も入っている）。合成だけの失敗として別に持つ
+      return { ...state, lines: patch(state.lines, m.seq, { speakError: m.reason }) };
   }
 }
 

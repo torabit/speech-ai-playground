@@ -5,7 +5,9 @@ export type Line = {
   seq: number;
   text: string;
   english: string | null;
-  error: string | null;
+  // 段ごとに分ける。翻訳が失敗した文に英語はない。合成だけ失敗した文には英語がある
+  translateError: string | null;
+  speakError: string | null;
   startMs: number;
   endMs: number;
   translateMs: number | null;
@@ -61,9 +63,11 @@ export function Transcript({ lines, partial, onSeek, playheadMs, playingSeq }: P
           title={onSeek ? `${(line.startMs / 1000).toFixed(1)}s から再生` : "録音は停止後に再生できる"}
         >
           <span className="text">{line.text}</span>
-          {/* 翻訳・合成が届くまでは "…"。失敗したら理由を出す */}
+          {/* 翻訳・合成が届くまでは "…"。翻訳が失敗したら英語の代わりにその理由を出す。
+              合成だけの失敗は英語自体は出ているので、末尾に別枠で添える */}
           <span className="english">
-            {line.error ? `翻訳失敗: ${line.error}` : (line.english ?? "…")}
+            {line.translateError ? `翻訳失敗: ${line.translateError}` : (line.english ?? "…")}
+            {line.speakError && <span className="warn"> 音声失敗: {line.speakError}</span>}
             {(line.translateMs !== null || line.speakMs !== null) && (
               <span className="lag" title="翻訳・音声合成にかかった時間">
                 {[line.translateMs, line.speakMs].filter((v): v is number => v !== null).map((v) => `${v}ms`).join(" / ")}

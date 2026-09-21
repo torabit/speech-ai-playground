@@ -17,7 +17,13 @@ export function useSpeechQueue() {
     setPlayingSeq(next.seq);
     audio.src = next.url;
     // Start のクリックで得た sticky activation に乗るので、通常は許可される
-    audio.play().catch((e: DOMException) => console.error("playback failed", e));
+    audio.play().catch((e: DOMException) => {
+      // reset() の pause() で意図的に中断された場合。queue の後始末は reset 側が済ませている
+      if (e.name === "AbortError") return;
+      console.error("playback failed", e);
+      // current を残したままだと次の push が playNext で毎回弾かれ、キューが二度と進まなくなる
+      finish();
+    });
   };
 
   const finish = () => {
