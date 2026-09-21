@@ -19,6 +19,9 @@ const ROOT = join(import.meta.dirname, "..");
 const FRAME = 640; // 20ms @ 16kHz / mono / 16bit
 const TAIL_MS = 3000; // 送り終えてから結果を待つ時間
 const MIN_AUDIO_SEC = 5; // これより短い録音では発話が足りず遅延が測れない
+// server/src/index.ts と同じ形。既定は 8787 だが、その 8787 を別プロセスが握っている場合に
+// 逃げ場が要る（下の assertPortFree 参照）
+const PORT = Number(process.env.PORT ?? 8787);
 
 let failures = 0;
 const check = (name, ok, detail = "") => {
@@ -32,12 +35,13 @@ const audioSec = pcm.length / 2 / 16000;
 console.log(`${file}  ${audioSec.toFixed(2)}s\n`);
 if (audioSec < MIN_AUDIO_SEC) throw new Error(`録音が短すぎる（${audioSec.toFixed(2)}s < ${MIN_AUDIO_SEC}s）`);
 
+await assertPortFree();
 const server = startServer();
 await waitForPort();
 
 /** @type {{type: string, t: number, audioMs: number, lagMs: number, endMs?: number, latencyMs?: number, text?: string, speechFinal?: boolean, reason?: string}[]} */
 const events = [];
-const ws = new WebSocket("ws://localhost:8787/audio");
+const ws = new WebSocket(`ws://localhost:${PORT}/audio`);
 ws.binaryType = "arraybuffer";
 const started = performance.now();
 
@@ -151,9 +155,11 @@ function readPcm(path) {
 }
 
 function startServer() {
+  // env は明示的に組まない。spawn は既定で親の process.env（PORT を含む）をそのまま継承するので、
+  // ここで作った子は自分が読んだのと同じ PORT で listen する
   const child = spawn("node", ["src/index.ts"], { cwd: join(ROOT, "server"), stdio: ["ignore", "inherit", "inherit"] });
   child.on("exit", (code) => {
-    if (code !== null && code !== 0) console.error(`server exited with ${code}. dev:server が :8787 を使っていないか確認する`);
+    if (code !== null && code !== 0) console.error(`server exited with ${code}. dev:server が :${PORT} を使っていないか確認する`);
   });
   return child;
 }
@@ -161,11 +167,27 @@ function startServer() {
 async function waitForPort() {
   for (let i = 0; i < 50; i++) {
     try {
-      await fetch("http://localhost:8787/");
+      await fetch(`http://localhost:${PORT}/`);
       return;
     } catch {
       await new Promise((r) => setTimeout(r, 100));
     }
   }
-  throw new Error("server did not start on :8787");
+  throw new Error(`server did not start on :${PORT}`);
+}
+
+// これが無いと、先客がいる時に起きることが厄介: このスクリプトはサーバを起動できず子は
+// すぐ落ちるが、waitForPort の fetch は「先客」に対して成功してしまう。結果、存在しない
+// 接続に音声を送り続け、意味の分からない失敗（相手が /audio を実装していないので繋がらない
+// 等）を延々報告することになる。起動前に「今すでに何か答えているか」を見て、答えるなら
+// 別プロセスの占有だと断定して即座に止める
+async function assertPortFree() {
+  try {
+    await fetch(`http://localhost:${PORT}/`);
+  } catch {
+    return; // 応答が無い＝空いている。これが正常系
+  }
+  throw new Error(
+    `:${PORT} は既に何かに使われている（dev:server か、無関係な別プロジェクト）。PORT=8799 npm run verify:phase1 -- <wav> のように別ポートへ逃がす`,
+  );
 }
