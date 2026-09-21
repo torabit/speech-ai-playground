@@ -165,6 +165,12 @@ app.get(
         openConnections--;
         // 切断時点で文が溜まったまま止まっていることがある。stt を閉じる前に吐かせる
         assembler?.flush();
+        // flush が出した sentence はもう ws.send できない（相手はいない）のに、
+        // pipeline.submit だけは動いて Gemini と Deepgram を叩き、結果を誰も受け取れない
+        // まま捨てることになる。さらに下の stt.close() が送る CloseStream の応答で
+        // final が遅れて届くと、assembler が生きていればそれも文になり課金が続く。
+        // 接続が閉じたらここで打ち止めにする
+        assembler = undefined;
         stt?.close();
         const pcm = Buffer.concat(chunks);
         const audioSec = pcm.length / 2 / SAMPLE_RATE;

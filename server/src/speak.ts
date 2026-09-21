@@ -12,6 +12,13 @@ export function buildSpeakUrl(model: string): string {
   return url.toString();
 }
 
+// mp3 の先頭がフレーム同期（0xFF 0xEx 以上）になっているかを見る。JSON のエラー応答や
+// ID3v2 タグ付きの応答（先頭が "ID3"）を音声として流さないための最後の砦。
+// 実測の応答は常にこれを満たす（先頭が ff f3）ので、まだ一度もここで落ちたことがない
+export function isMp3FrameSync(bytes: Uint8Array): boolean {
+  return bytes.length >= 2 && bytes[0] === 0xff && (bytes[1]! & 0xe0) === 0xe0;
+}
+
 export async function speak(
   apiKey: string,
   model: string,
@@ -26,7 +33,11 @@ export async function speak(
   });
   if (!response.ok) throw new Error(`deepgram tts: ${response.status} ${(await response.text()).slice(0, 200)}`);
   const mp3 = new Uint8Array(await response.arrayBuffer());
-  // 先頭はフレーム同期（0xFF 0xEx 以上）。JSON のエラーを音声として流さない
-  if (mp3.length < 2 || mp3[0] !== 0xff || (mp3[1]! & 0xe0) !== 0xe0) throw new Error("deepgram tts: mp3 ではない応答");
+  if (!isMp3FrameSync(mp3)) {
+    // 実際に何が来たかが分かるよう、先頭 4 バイトと content-type を添える。
+    // ID3v2 なら先頭が "49 44 33"、JSON エラーなら "7b"（"{"）になり見分けが付く
+    const head = Array.from(mp3.slice(0, 4), (b) => b.toString(16).padStart(2, "0")).join(" ") || "(empty)";
+    throw new Error(`deepgram tts: mp3 ではない応答 (head=${head} content-type=${response.headers.get("content-type")})`);
+  }
   return mp3;
 }

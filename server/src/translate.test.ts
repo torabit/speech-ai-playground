@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildTranslateRequest, readTranslation } from "./translate.ts";
+import { buildTranslateRequest, readDiagnostic, readTranslation } from "./translate.ts";
 
 test("システム指示と本文を組み立てる", () => {
   const body = buildTranslateRequest("おはよう。") as any;
@@ -28,4 +28,14 @@ test("形が違う応答では null を返す", () => {
   assert.equal(readTranslation({ candidates: [] }), null);
   assert.equal(readTranslation({ candidates: [{ content: { parts: [] } }] }), null);
   assert.equal(readTranslation({ candidates: [{ content: { parts: [{ text: "  " }] } }] }), null);
+});
+
+test("finishReason と blockReason を診断として読む", () => {
+  assert.equal(readDiagnostic({ candidates: [{ finishReason: "MAX_TOKENS" }] }), "finishReason=MAX_TOKENS");
+  assert.equal(readDiagnostic({ promptFeedback: { blockReason: "SAFETY" } }), "blockReason=SAFETY");
+  assert.equal(
+    readDiagnostic({ candidates: [{ finishReason: "SAFETY" }], promptFeedback: { blockReason: "OTHER" } }),
+    "finishReason=SAFETY blockReason=OTHER",
+  );
+  assert.equal(readDiagnostic({}), null);
 });

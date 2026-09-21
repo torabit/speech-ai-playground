@@ -1,7 +1,9 @@
 // Gemini で日本語 1 文を英語 1 文にする。
 //
-// モデルの既定を 2.5 系にするのは thinking を切れるため。3.1 と 3.5 の flash-lite は
-// thinking_level の下限が minimal で、完全には切れない。
+// thinkingConfig は付けない。それでモデルの既定を 2.5 系にしているのは、2.5 系がその既定で
+// thinking が off だから。3.1 と 3.5 の flash-lite は thinking_level の下限が minimal で、
+// 指定しても off にはできない。この差の実測（TTFT 等）は verify:phase2 で GEMINI_MODEL を
+// 差し替えて測る側の仕事で、ここで thinkingConfig を足して制御することはしない。
 // ストリーミング（streamGenerateContent）は使わない。出力が数十トークンなので利得が小さい。
 
 const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -38,6 +40,20 @@ export function readTranslation(json: unknown): string | null {
   return trimmed ? trimmed : null;
 }
 
+// readTranslation が null を返した理由の手がかり。MAX_TOKENS（予算切れ）、SAFETY（安全性で
+// 打ち切り）、プロンプト単位の blockReason（candidates 自体が無い）はそれぞれ別の原因で、
+// 束ねて「訳文が読めない」とだけ返すと初回の実測で全滅した時に何も分からない。
+// プロンプト本文や鍵は含めない
+export function readDiagnostic(json: unknown): string | null {
+  const j = json as { candidates?: { finishReason?: string }[]; promptFeedback?: { blockReason?: string } };
+  const finishReason = j?.candidates?.[0]?.finishReason;
+  const blockReason = j?.promptFeedback?.blockReason;
+  const parts = [finishReason && `finishReason=${finishReason}`, blockReason && `blockReason=${blockReason}`].filter(
+    (v): v is string => Boolean(v),
+  );
+  return parts.length > 0 ? parts.join(" ") : null;
+}
+
 export async function translate(
   apiKey: string,
   model: string,
@@ -52,7 +68,11 @@ export async function translate(
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok) throw new Error(`gemini: ${response.status} ${(await response.text()).slice(0, 200)}`);
-  const text = readTranslation(await response.json());
-  if (!text) throw new Error("gemini: 訳文が読めない");
+  const json = await response.json();
+  const text = readTranslation(json);
+  if (!text) {
+    const diagnostic = readDiagnostic(json);
+    throw new Error(`gemini: 訳文が読めない${diagnostic ? `（${diagnostic}）` : ""}`);
+  }
   return text;
 }
