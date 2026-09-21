@@ -220,9 +220,13 @@ function seqOrderCheck(list) {
   return ["seq が 1 から連番で順序どおりに届く", ok, `seq=${seqs.join(",") || "-"}`];
 }
 
-// server/.env を自分では読み込まない（読み込むのはサーバ側の役目）ので、
-// 鍵の有無だけをファイルから直接見る。値そのものは絶対にログへ出さない
+// サーバは process.loadEnvFile(server/.env) で鍵を読むが、これは環境に既に同名の変数があれば
+// 上書きしない。つまり実際に効くのは「シェルの GEMINI_API_KEY があればそちら、無ければ
+// server/.env」という優先順位。ここもそれに合わせないと、シェルから鍵を渡して起動した
+// サーバは訳せているのに、このチェックだけ server/.env（空）を見て「無い」と嘘をつく。
+// 値そのものは絶対にログへ出さない
 function readGeminiKeyPresence() {
+  if (process.env.GEMINI_API_KEY?.trim()) return true;
   const envPath = join(ROOT, "server/.env");
   if (!existsSync(envPath)) return false;
   const line = readFileSync(envPath, "utf8").split("\n").find((l) => l.startsWith("GEMINI_API_KEY="));
