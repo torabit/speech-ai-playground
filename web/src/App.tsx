@@ -5,7 +5,7 @@ import { useSpeechSession } from "./useSpeechSession";
 
 export function App() {
   const queue = useSpeechQueue();
-  const { state, start, stop } = useSpeechSession(queue.push);
+  const { state, start, stop } = useSpeechSession(queue.push, queue.reset);
   const player = useRecordingPlayer();
   const { connection, meter } = state;
 
@@ -66,7 +66,7 @@ export function App() {
       </section>
 
       {/* 英語音声の再生専用。画面には出さず、キューが順に src を差し替える */}
-      <audio ref={queue.ref} onEnded={queue.onEnded} hidden />
+      <audio ref={queue.ref} onEnded={queue.onEnded} onError={queue.onError} hidden />
 
       {recordingSrc && (
         <section>

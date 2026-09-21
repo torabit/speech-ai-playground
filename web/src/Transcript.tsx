@@ -10,6 +10,8 @@ export type Line = {
   speakError: string | null;
   startMs: number;
   endMs: number;
+  // 文が確定してから届くまでの STT の遅れ。sentence の時点で必ず分かるので null にはならない
+  sttMs: number;
   translateMs: number | null;
   speakMs: number | null;
 };
@@ -68,11 +70,17 @@ export function Transcript({ lines, partial, onSeek, playheadMs, playingSeq }: P
           <span className="english">
             {line.translateError ? `翻訳失敗: ${line.translateError}` : (line.english ?? "…")}
             {line.speakError && <span className="warn"> 音声失敗: {line.speakError}</span>}
-            {(line.translateMs !== null || line.speakMs !== null) && (
-              <span className="lag" title="翻訳・音声合成にかかった時間">
-                {[line.translateMs, line.speakMs].filter((v): v is number => v !== null).map((v) => `${v}ms`).join(" / ")}
-              </span>
-            )}
+            {/* stt は sentence の時点で必ず分かる。translate と speak は届くまで null で、
+                ラベルを付けないと再生途中の行で裸の数字が並び、どの段か読めなくなる */}
+            <span className="lag" title="STT・翻訳・音声合成にかかった時間">
+              {[
+                `stt ${line.sttMs}ms`,
+                line.translateMs !== null ? `tr ${line.translateMs}ms` : null,
+                line.speakMs !== null ? `tts ${line.speakMs}ms` : null,
+              ]
+                .filter((v): v is string => v !== null)
+                .join(" / ")}
+            </span>
           </span>
         </div>
       ))}

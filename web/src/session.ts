@@ -14,7 +14,9 @@ export type ServerMessage = { t: number; audioMs: number; lagMs: number } & (
   | { type: "speech_started" }
   | { type: "utterance_end" }
   | { type: "stt_error"; reason: string }
-  | { type: "sentence"; seq: number; text: string; startMs: number; endMs: number; reason: "punctuation" | "silence" | "length" }
+  // latencyMs は endMs を持つメッセージなら toBrowser が必ず付ける（server/src/index.ts）。
+  // 文が確定してから届くまでの STT 側の遅れで、翻訳・合成とは別の段として画面に出す
+  | { type: "sentence"; seq: number; text: string; startMs: number; endMs: number; reason: "punctuation" | "silence" | "length"; latencyMs: number }
   | { type: "translation"; seq: number; text: string; translateMs: number }
   | { type: "speech"; seq: number; bytes: number; speakMs: number; queuedMs: number }
   | { type: "translate_error"; seq: number; reason: string }

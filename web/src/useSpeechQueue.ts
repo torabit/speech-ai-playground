@@ -41,6 +41,14 @@ export function useSpeechQueue() {
     },
     playingSeq,
     onEnded: finish,
+    // 再生開始後の decode 失敗は ended ではなく error で来る。ended と同じ経路で進めないと
+    // current が残ったままになり、以降の push が playNext で毎回弾かれてキューが二度と進まない
+    // （finish は revoke 済みでも呼び直せる=冪等なので使い回せる）
+    onError: () => {
+      const err = ref.current?.error;
+      console.error(`playback error code=${err?.code} message=${err?.message}`);
+      finish();
+    },
     reset: () => {
       // Stop で止めたのに英語が鳴り続けないよう、まず再生を止める
       ref.current?.pause();

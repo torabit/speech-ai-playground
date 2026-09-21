@@ -84,7 +84,7 @@ function applyServerMessage(state: State, m: ServerMessage): State {
         ...state,
         lines: [
           ...state.lines,
-          { seq: m.seq, text: m.text, english: null, translateError: null, speakError: null, startMs: m.startMs, endMs: m.endMs, translateMs: null, speakMs: null },
+          { seq: m.seq, text: m.text, english: null, translateError: null, speakError: null, startMs: m.startMs, endMs: m.endMs, sttMs: m.latencyMs, translateMs: null, speakMs: null },
         ],
       };
     case "translation":
@@ -100,8 +100,11 @@ function applyServerMessage(state: State, m: ServerMessage): State {
 }
 
 // onSpeech: 英語音声（mp3）が届いたときの通知。再生キューへ渡すのは呼び出し側の責務にして、
-// このフックは接続の状態管理に専念する
-export function useSpeechSession(onSpeech: (seq: number, mp3: ArrayBuffer) => void) {
+// このフックは接続の状態管理に専念する。
+// resetQueue: セッションの境界（開始時・失敗時）でキューを空にするためのコールバック。
+// Stop ボタンからだけ呼ぶと、切断で failed に落ちた場合に前のセッションの mp3 がキューに
+// 残り続け、次のセッションが seq=1 から再開したときに古い音声が新しい行で鳴ってしまう
+export function useSpeechSession(onSpeech: (seq: number, mp3: ArrayBuffer) => void, resetQueue: () => void) {
   const [state, dispatch] = useReducer(reducer, INITIAL);
   const session = useRef<Session | null>(null);
   // 20ms ごとに dispatch すると画面全体が毎秒 50 回再描画される。溜めて 100ms ごとに反映する
@@ -112,11 +115,13 @@ export function useSpeechSession(onSpeech: (seq: number, mp3: ArrayBuffer) => vo
 
   const start = () => {
     dispatch({ type: "start" });
+    resetQueue();
     pending.current = { frames: 0, peak: 0, lastFlush: 0 };
     session.current = startSession({
       onReady: () => dispatch({ type: "ready" }),
       onFailed: (reason) => {
         session.current = null;
+        resetQueue();
         dispatch({ type: "failed", reason });
       },
       onFrame: (peak) => {
