@@ -11,7 +11,8 @@
     "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
     "test": "node --test server/src/*.test.ts",
     "verify:phase0": "node scripts/verify-phase0.mjs",
-    "verify:phase1": "node scripts/verify-phase1.mjs"
+    "verify:phase1": "node scripts/verify-phase1.mjs",
+    "verify:phase2": "node scripts/verify-phase2.mjs"
   },
   "devDependencies": {
     "playwright-core": "^1.63.0"

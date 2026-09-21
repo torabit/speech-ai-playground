@@ -41,6 +41,7 @@ API キーは `server/.env` に書く（`.env.example` を参照、gitignore 済
 npm run dev:web
 npm run verify:phase0   # dev:server は止めておく
 npm run verify:phase1   # 録音を STT へ流して遅延を測る。dev:server は止めておく
+npm run verify:phase2   # 録音を翻訳・合成まで流して遅延を測る。dev:server は止めておく
 ```
 
 ## 進捗
